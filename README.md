@@ -80,7 +80,15 @@ eerspot은 아래의 사용자 흐름을 중심으로 만들어졌습니다.
 - 검색 결과 저장
 - 일정 연결
 
+<<<<<<< ours
+<<<<<<< ours
+지원 지도(provider 인터페이스, v1에서는 1개만 활성화):
+=======
 지원 지도(확장 가능):
+>>>>>>> theirs
+=======
+지원 지도(확장 가능):
+>>>>>>> theirs
 
 - Naver Map
 - Kakao Map
@@ -88,7 +96,15 @@ eerspot은 아래의 사용자 흐름을 중심으로 만들어졌습니다.
 
 ---
 
+<<<<<<< ours
+<<<<<<< ours
+### 4) Instagram Place Capture (v1.1+)
+=======
 ### 4) Instagram Place Capture
+>>>>>>> theirs
+=======
+### 4) Instagram Place Capture
+>>>>>>> theirs
 Instagram에서 발견한 장소를 빠르게 수집하고 정리합니다.
 
 - Instagram 링크 입력
@@ -96,15 +112,33 @@ Instagram에서 발견한 장소를 빠르게 수집하고 정리합니다.
 - 장소 리스트 정리
 - 원하는 장소 저장
 
+<<<<<<< ours
+<<<<<<< ours
+> v1에서는 Discover 화면만 placeholder로 두고, 자동 추출은 v1.1+ 범위로 둡니다.
+=======
 > 장소 탐색의 시작점을 Instagram으로 확장하는 기능입니다.
+>>>>>>> theirs
+=======
+> 장소 탐색의 시작점을 Instagram으로 확장하는 기능입니다.
+>>>>>>> theirs
 
 ---
 
 ### 5) Map Integration
 저장한 장소를 지도 앱으로 바로 열 수 있습니다.
 
+<<<<<<< ours
+<<<<<<< ours
+- v1: 선택한 단일 지도 provider 딥링크 열기
+- v1.1+: 추가 provider 확장
+=======
 - 네이버 지도 열기
 - 카카오맵 열기
+>>>>>>> theirs
+=======
+- 네이버 지도 열기
+- 카카오맵 열기
+>>>>>>> theirs
 
 예시:
 
@@ -137,11 +171,22 @@ nmap://search?query=성수미도인
 
 eerspot은 계정 기반 서비스로 동작하며, 사용자 데이터를 안전하게 관리합니다.
 
+<<<<<<< ours
+<<<<<<< ours
+- v1: 회원가입, 로그인, 로그아웃, 세션 자동 갱신
+- v1.1+: 비밀번호 찾기, 회원탈퇴
+=======
+=======
+>>>>>>> theirs
 - 회원가입
 - 로그인
 - 로그아웃
 - 비밀번호 찾기
 - 회원탈퇴
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 계정을 통해 제공되는 가치:
 
@@ -160,7 +205,15 @@ eerspot은 계정 기반 서비스로 동작하며, 사용자 데이터를 안�
 → 장소 저장  
 → 일정 등록
 
+<<<<<<< ours
+<<<<<<< ours
+### 방법 2: Instagram 발견 기반 (v1.1+)
+=======
 ### 방법 2: Instagram 발견 기반
+>>>>>>> theirs
+=======
+### 방법 2: Instagram 발견 기반
+>>>>>>> theirs
 
 Instagram 링크 입력  
 → 장소 추출  
@@ -173,7 +226,15 @@ Instagram 링크 입력
 
 - **Calendar**: 일정 관리 중심 화면
 - **Places**: 저장한 장소 리스트
+<<<<<<< ours
+<<<<<<< ours
+- **Discover**: v1 placeholder, v1.1+ Instagram 기반 장소 수집
+=======
 - **Discover**: Instagram 기반 장소 수집
+>>>>>>> theirs
+=======
+- **Discover**: Instagram 기반 장소 수집
+>>>>>>> theirs
 
 ---
 
@@ -189,6 +250,13 @@ Instagram 링크 입력
 
 ### Local Storage
 
+<<<<<<< ours
+<<<<<<< ours
+- Secure Storage (Keychain / Keystore-backed)
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 - react-native-mmkv
 - SQLite
 
@@ -202,10 +270,23 @@ Instagram 링크 입력
 - 사용자 인증
 - 일정 데이터 관리
 - 장소 데이터 관리
+<<<<<<< ours
+<<<<<<< ours
+- v1.1+: Instagram 링크 분석
+- 지도 API 검색
+
+### AI Integration (v1.1+)
+=======
+=======
+>>>>>>> theirs
 - Instagram 링크 분석
 - 지도 API 검색
 
 ### AI Integration
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 Instagram 콘텐츠에서 장소를 추출하기 위해 AI 모델을 활용할 수 있습니다.
 
@@ -236,8 +317,18 @@ React Native 공식 문서를 기준으로 개발을 시작하기 전에, 아래
 ### 1) Product & Scope
 
 - [ ] **MVP 범위 확정**: v1에 꼭 들어갈 기능만 고정
+<<<<<<< ours
+<<<<<<< ours
+  - 권장 v1: Calendar + Places + Place Search + Visit Note + 기본 계정
+  - v1.1 후보: Instagram 자동 추출, 다중 지도 provider, 고급 추천, 고급 통계
+=======
   - 권장 v1: Calendar + Places + Place Search + 기본 계정
   - v1.1 후보: Instagram 자동 추출, 고급 추천, 고급 통계
+>>>>>>> theirs
+=======
+  - 권장 v1: Calendar + Places + Place Search + 기본 계정
+  - v1.1 후보: Instagram 자동 추출, 고급 추천, 고급 통계
+>>>>>>> theirs
 - [ ] 플랫폼 우선순위 결정 (Android 먼저 / iOS 동시)
 - [ ] 출시 목표와 성공 지표 정의
   - 예: 첫 주 일정 생성률, 장소 저장률, 재방문 체크율
@@ -249,7 +340,15 @@ React Native 공식 문서를 기준으로 개발을 시작하기 전에, 아래
   - Stack: 상세 화면(일정 생성, 장소 상세, 방문 기록)
 - [ ] 핵심 사용자 흐름 와이어 확정
   - 흐름 A: 검색 → 저장 → 일정 연결
+<<<<<<< ours
+<<<<<<< ours
+  - 흐름 B: Discover(placeholder) → 저장 → 일정 연결
+=======
   - 흐름 B: Discover → 저장 → 일정 연결
+>>>>>>> theirs
+=======
+  - 흐름 B: Discover → 저장 → 일정 연결
+>>>>>>> theirs
 - [ ] 실패/빈 상태 UX 정의
   - 검색 결과 없음, 네트워크 오류, 장소 추출 실패 등
 
@@ -268,10 +367,23 @@ React Native 공식 문서를 기준으로 개발을 시작하기 전에, 아래
 - [ ] 인증 방식 결정 (이메일/비밀번호, 소셜 로그인 포함 여부)
 - [ ] 토큰 정책 확정 (만료/갱신/로그아웃)
 - [ ] REST API 초안 작성
+<<<<<<< ours
+<<<<<<< ours
+  - 인증: `/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/logout`
+  - 일정: `/schedules`
+  - 장소: `/places`, `/places/search`
+  - 방문 기록: `/schedules/{id}/visit`
+=======
+=======
+>>>>>>> theirs
   - 인증: `/auth/signup`, `/auth/login`, `/auth/logout`
   - 일정: `/schedules`
   - 장소: `/places`, `/places/search`
   - 방문 기록: `/visits`
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 - [ ] 에러 코드 규약 확정
 
 ### 5) Maps & External Integration
@@ -297,7 +409,16 @@ React Native 공식 문서를 기준으로 개발을 시작하기 전에, 아래
 - [ ] 상태관리 1개 우선 선택 (Zustand 또는 RTK)
 - [ ] 서버 상태 관리: TanStack React Query 표준화
 - [ ] 로컬 저장 전략 확정
+<<<<<<< ours
+<<<<<<< ours
+  - Secure Storage: refresh token 등 민감 정보
+  - MMKV: 비민감 설정/캐시
+=======
   - MMKV: 세션/설정
+>>>>>>> theirs
+=======
+  - MMKV: 세션/설정
+>>>>>>> theirs
   - SQLite: 일정/장소/방문 데이터
 
 ### 8) Sync / Offline
@@ -324,16 +445,37 @@ React Native 공식 문서를 기준으로 개발을 시작하기 전에, 아래
 
 ### In Scope (v1)
 
+<<<<<<< ours
+<<<<<<< ours
+- 계정: 회원가입/로그인/로그아웃/세션 자동 갱신
+- 캘린더: 일정 생성/조회/수정/삭제
+- 장소: 검색/저장/상세
+- 일정-장소 연결
+- 방문 체크 + 일정당 방문 메모 1개
+=======
+=======
+>>>>>>> theirs
 - 계정: 회원가입/로그인/로그아웃
 - 캘린더: 일정 생성/조회/수정/삭제
 - 장소: 검색/저장/상세
 - 일정-장소 연결
 - 방문 체크 + 간단 메모
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 ### Out of Scope (v1.1+)
 
 - Instagram 자동 장소 추출 고도화(Discover 화면은 v1 placeholder, 자동 추출은 v1.1+)
 - 다중 지도 provider 동시 지원
+<<<<<<< ours
+<<<<<<< ours
+- 비밀번호 찾기 / 회원탈퇴 / 수동 장소 입력
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 - 고급 추천/리포트/개인화
 
 ---
@@ -344,7 +486,15 @@ React Native 공식 문서를 기준으로 개발을 시작하기 전에, 아래
 - **M2**: 장소 검색/저장 + 장소 상세
 - **M3**: 캘린더 일정 CRUD + 장소 연결
 - **M4**: 방문 기록 + 동기화 안정화
+<<<<<<< ours
+<<<<<<< ours
+- **M5**: v1.1 Discover(Instagram) 최소 기능 추가
+=======
 - **M5**: Discover(Instagram) 최소 기능 추가
+>>>>>>> theirs
+=======
+- **M5**: Discover(Instagram) 최소 기능 추가
+>>>>>>> theirs
 
 
 ---
@@ -355,17 +505,71 @@ React Native 공식 문서를 기준으로 개발을 시작하기 전에, 아래
 
 1. 제품/범위: `README.md`, `docs/mvp-spec.md`
 2. 데이터 구조: `docs/data-model-v1.md`
+<<<<<<< ours
+<<<<<<< ours
+3. 기술 아키텍처: `docs/architecture-v1.md`
+4. API 계약: `docs/api-contract-v1.md`, `docs/api-guidelines.md`
+5. 보안/인증: `docs/auth-security.md`
+6. 동기화 정책: `docs/sync-conflict-policy.md`
+7. 구현 가이드: `docs/implementation-guide-v1.md`
+8. 분석 이벤트: `docs/analytics-events.md`
+9. 실행 계획: `docs/sprint-1-backlog.md`
+10. 배포/환경: `docs/release-environment.md`
+=======
+=======
+>>>>>>> theirs
 3. API 계약: `docs/api-contract-v1.md`, `docs/api-guidelines.md`
 4. 보안/인증: `docs/auth-security.md`
 5. 동기화 정책: `docs/sync-conflict-policy.md`
 6. 분석 이벤트: `docs/analytics-events.md`
 7. 실행 계획: `docs/sprint-1-backlog.md`
 8. 배포/환경: `docs/release-environment.md`
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 ### 빠른 시작 추천 순서
 
 - Step 1: `docs/mvp-spec.md`에서 v1 Scope/DoD 확정
 - Step 2: `docs/data-model-v1.md`로 스키마 합의
+<<<<<<< ours
+<<<<<<< ours
+- Step 3: `docs/architecture-v1.md`로 모바일/서버 책임과 저장소 경계 확정
+- Step 4: `docs/api-contract-v1.md` + `docs/api-guidelines.md`로 API 확정
+- Step 5: `docs/implementation-guide-v1.md`와 `docs/sprint-1-backlog.md`를 이슈/티켓으로 분해
+
+---
+
+## 🧩 Workspace Quick Start
+
+현재 저장소는 `mobile/` React Native 앱과 `server/` Fastify API를 포함한 npm workspace 구조입니다.
+
+```bash
+npm install
+npm run server:dev
+npm run mobile:start
+```
+
+유용한 검증 명령:
+
+```bash
+npm run lint
+npm run typecheck
+npm run mobile:test -- --runInBand
+```
+
+현재 기본 확인 endpoint:
+
+- `GET /health`
+- `GET /api/v1/health`
+=======
 - Step 3: `docs/api-contract-v1.md` + `docs/api-guidelines.md`로 API 확정
 - Step 4: `docs/sprint-1-backlog.md`를 이슈/티켓으로 분해
 
+>>>>>>> theirs
+=======
+- Step 3: `docs/api-contract-v1.md` + `docs/api-guidelines.md`로 API 확정
+- Step 4: `docs/sprint-1-backlog.md`를 이슈/티켓으로 분해
+
+>>>>>>> theirs

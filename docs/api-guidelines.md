@@ -10,12 +10,28 @@
 
 ## 2) Response Envelope
 성공 응답은 endpoint 성격에 따라 아래 중 하나를 사용합니다.
+<<<<<<< ours
+<<<<<<< ours
+- `200` / `201` 응답은 항상 최상위 `data` 필드를 사용한다.
+- `204` 응답은 body를 반환하지 않는다.
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 ### Resource 응답
 ```json
 {
   "data": {
+<<<<<<< ours
+<<<<<<< ours
+    "id": "550e8400-e29b-41d4-a716-446655440000"
+=======
     "id": "sch_123"
+>>>>>>> theirs
+=======
+    "id": "sch_123"
+>>>>>>> theirs
   }
 }
 ```
@@ -33,19 +49,45 @@
 }
 ```
 
+<<<<<<< ours
+<<<<<<< ours
+- `pageInfo`는 pagination이 필요한 list endpoint에서만 포함한다.
+
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 ## 3) Error Envelope
 ```json
 {
   "error": {
     "code": "VALIDATION_ERROR",
     "message": "title is required",
+<<<<<<< ours
+<<<<<<< ours
+    "requestId": "req_abc123",
+    "details": {
+      "field": "title"
+    }
+=======
     "requestId": "req_abc123"
+>>>>>>> theirs
+=======
+    "requestId": "req_abc123"
+>>>>>>> theirs
   }
 }
 ```
 
 - `message`: 사용자에게 바로 노출 가능한 문장
 - 내부 디버그 정보는 서버 로그에만 기록
+<<<<<<< ours
+<<<<<<< ours
+- 에러 응답에서는 success용 최상위 `data` 필드를 함께 사용하지 않는다.
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 ## 4) Pagination / Sorting / Filtering
 List API 공통 규칙:
@@ -61,7 +103,15 @@ List API 공통 규칙:
 
 ## 5) Idempotency
 중복 생성 방지를 위해 생성 API는 선택적으로 `Idempotency-Key` 헤더를 지원합니다.
+<<<<<<< ours
+<<<<<<< ours
+- 대상: `POST /places`, `POST /schedules`, `POST /schedules/{id}/visit`
+=======
 - 대상: `POST /places`, `POST /schedules`, `POST /visits`
+>>>>>>> theirs
+=======
+- 대상: `POST /places`, `POST /schedules`, `POST /visits`
+>>>>>>> theirs
 
 ## 6) Rate Limit
 - 기본 제한: 사용자별 60 req/min (초안)

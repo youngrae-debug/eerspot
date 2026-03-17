@@ -1,0 +1,23 @@
+{
+  "name": "eerspot",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "mobile",
+    "server"
+  ],
+  "scripts": {
+    "lint": "npm run lint --workspace mobile",
+    "typecheck": "npm run typecheck --workspace mobile && npm run typecheck --workspace server",
+    "mobile:android": "npm run android --workspace mobile",
+    "mobile:ios": "npm run ios --workspace mobile",
+    "mobile:start": "npm run start --workspace mobile",
+    "mobile:test": "npm run test --workspace mobile",
+    "server:build": "npm run build --workspace server",
+    "server:dev": "npm run dev --workspace server",
+    "server:start": "npm run start --workspace server"
+  },
+  "engines": {
+    "node": ">=22.11.0"
+  }
+}

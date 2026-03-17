@@ -23,7 +23,16 @@ v1 기본 규칙: **LWW (Last Write Wins)**
 - Schedule
   - 동일 ID 수정 충돌 시 최신 `updatedAt` 승리
 - VisitNote
+<<<<<<< ours
+<<<<<<< ours
+  - v1에서는 `scheduleId` 당 1건만 허용
+  - 동일 scheduleId 수정 충돌 시 최신 `updatedAt` 승리
+=======
   - scheduleId 기준 다건 허용, 동일 noteId 충돌만 LWW
+>>>>>>> theirs
+=======
+  - scheduleId 기준 다건 허용, 동일 noteId 충돌만 LWW
+>>>>>>> theirs
 
 ## 5) Retry Policy
 - 백오프: 1s → 3s → 10s → 30s (최대 4회)

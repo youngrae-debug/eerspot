@@ -10,7 +10,15 @@
 ## 1) User
 | field | type | required | note |
 |---|---|---|---|
+<<<<<<< ours
+<<<<<<< ours
+| id | string(uuid v4) | Y | PK |
+=======
 | id | string(uuid) | Y | PK |
+>>>>>>> theirs
+=======
+| id | string(uuid) | Y | PK |
+>>>>>>> theirs
 | email | string | Y | unique |
 | passwordHash | string | Y | server only |
 | createdAt | string(datetime) | Y | UTC |
@@ -19,10 +27,23 @@
 ## 2) Place
 | field | type | required | note |
 |---|---|---|---|
+<<<<<<< ours
+<<<<<<< ours
+| id | string(uuid v4) | Y | PK |
+| userId | string(uuid v4) | Y | owner |
+| provider | enum(naver,kakao,google) | Y | source provider |
+| providerPlaceId | string | Y | provider 원본 ID |
+=======
+=======
+>>>>>>> theirs
 | id | string(uuid) | Y | PK |
 | userId | string(uuid) | Y | owner |
 | provider | enum(naver,kakao,google,manual) | Y | source provider |
 | providerPlaceId | string | N | provider 원본 ID |
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 | name | string | Y | 장소명 |
 | address | string | N | 주소 |
 | lat | number | N | 위도 |
@@ -37,12 +58,27 @@
 ## 3) Schedule
 | field | type | required | note |
 |---|---|---|---|
+<<<<<<< ours
+<<<<<<< ours
+| id | string(uuid v4) | Y | PK |
+| userId | string(uuid v4) | Y | owner |
+| title | string | Y | 일정 제목 |
+| memo | string | N | 일정 메모 |
+| scheduledAt | string(datetime) | Y | UTC 저장 |
+| placeId | string(uuid v4) | N | Place FK |
+=======
+=======
+>>>>>>> theirs
 | id | string(uuid) | Y | PK |
 | userId | string(uuid) | Y | owner |
 | title | string | Y | 일정 제목 |
 | memo | string | N | 일정 메모 |
 | scheduledAt | string(datetime) | Y | UTC 저장 |
 | placeId | string(uuid) | N | Place FK |
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 | visitStatus | enum(planned,visited,skipped) | Y | default=planned |
 | createdAt | string(datetime) | Y | UTC |
 | updatedAt | string(datetime) | Y | UTC |
@@ -51,9 +87,21 @@
 ## 4) VisitNote
 | field | type | required | note |
 |---|---|---|---|
+<<<<<<< ours
+<<<<<<< ours
+| id | string(uuid v4) | Y | PK |
+| userId | string(uuid v4) | Y | owner |
+| scheduleId | string(uuid v4) | Y | Schedule FK, v1에서 1:1 |
+=======
 | id | string(uuid) | Y | PK |
 | userId | string(uuid) | Y | owner |
 | scheduleId | string(uuid) | Y | Schedule FK |
+>>>>>>> theirs
+=======
+| id | string(uuid) | Y | PK |
+| userId | string(uuid) | Y | owner |
+| scheduleId | string(uuid) | Y | Schedule FK |
+>>>>>>> theirs
 | rating | integer(1~5) | N | 별점 |
 | memo | string | N | 방문 메모 |
 | revisit | boolean | N | 재방문 의사 |
@@ -61,10 +109,26 @@
 | createdAt | string(datetime) | Y | UTC |
 | updatedAt | string(datetime) | Y | UTC |
 
+<<<<<<< ours
+<<<<<<< ours
+### unique constraint
+- VisitNote: (scheduleId)
+
+## 인덱스 권장
+- Place: (userId, name), (userId, savedAt desc)
+- Schedule: (userId, scheduledAt), (userId, visitStatus)
+- VisitNote: (scheduleId), (userId, visitedAt)
+=======
+=======
+>>>>>>> theirs
 ## 인덱스 권장
 - Place: (userId, name), (userId, savedAt desc)
 - Schedule: (userId, scheduledAt), (userId, visitStatus)
 - VisitNote: (userId, visitedAt), (scheduleId)
+<<<<<<< ours
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 ## 동기화 필드
 오프라인 동기화를 위해 아래 필드를 로컬 전용으로 둘 수 있다.

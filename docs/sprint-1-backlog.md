@@ -3,13 +3,32 @@
 연결 문서:
 - 범위/DoD: `docs/mvp-spec.md`
 - 데이터 모델: `docs/data-model-v1.md`
+<<<<<<< ours
+<<<<<<< ours
+- 아키텍처: `docs/architecture-v1.md`
 - API 계약: `docs/api-contract-v1.md`
 - API 공통 규약: `docs/api-guidelines.md`
+- 구현 가이드: `docs/implementation-guide-v1.md`
+=======
+- API 계약: `docs/api-contract-v1.md`
+- API 공통 규약: `docs/api-guidelines.md`
+>>>>>>> theirs
+=======
+- API 계약: `docs/api-contract-v1.md`
+- API 공통 규약: `docs/api-guidelines.md`
+>>>>>>> theirs
 
 ## 목표
 - 로그인 가능한 앱 골격 완성
 - 장소 검색/저장 흐름 1차 완성
 - 일정 생성 및 장소 연결까지 동작
+<<<<<<< ours
+<<<<<<< ours
+- 방문 완료 및 방문 메모 1차 동작
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 
 
 ## 운영 필드 (실행 관리)
@@ -38,9 +57,22 @@
 ## Epic B. Auth
 
 ### B-1 인증 API 연동
+<<<<<<< ours
+<<<<<<< ours
+- [ ] signup/login/refresh/logout API client
+- [ ] refresh token secure storage 연동
+- [ ] access token 만료 시 refresh 후 요청 재시도
+- [ ] refresh 실패 시 로그아웃 처리
+=======
 - [ ] signup/login/logout API client
 - [ ] 토큰 저장(MMKV)
 - [ ] 토큰 만료 시 로그아웃 처리
+>>>>>>> theirs
+=======
+- [ ] signup/login/logout API client
+- [ ] 토큰 저장(MMKV)
+- [ ] 토큰 만료 시 로그아웃 처리
+>>>>>>> theirs
 
 ### B-2 인증 화면
 - [ ] LoginScreen
@@ -51,6 +83,13 @@
 
 ### C-1 장소 검색
 - [ ] 검색 입력/디바운스
+<<<<<<< ours
+<<<<<<< ours
+- [ ] v1 활성 provider 1개 기준 검색 연동
+=======
+>>>>>>> theirs
+=======
+>>>>>>> theirs
 - [ ] 검색 결과 목록 표시
 - [ ] 빈 상태/에러 상태 처리
 
@@ -70,12 +109,39 @@
 - [ ] 일정 생성 시 저장된 장소 선택
 - [ ] 일정 상세에 장소 정보 표시
 
+<<<<<<< ours
+<<<<<<< ours
+## Epic E. Visit
+
+### E-1 방문 기록
+- [ ] 방문 완료 체크 UI
+- [ ] 방문 메모 생성/조회/수정 API 연동
+- [ ] 일정당 방문 메모 1건 제약 처리
+
+## QA / Done Criteria
+- [ ] 핵심 플로우 E2E 점검
+  - 로그인 → 장소 검색/저장 → 일정 생성(장소 연결) → 방문 완료/메모 → 일정 조회
+=======
 ## QA / Done Criteria
 - [ ] 핵심 플로우 E2E 점검
   - 로그인 → 장소 검색/저장 → 일정 생성(장소 연결) → 일정 조회
+>>>>>>> theirs
+=======
+## QA / Done Criteria
+- [ ] 핵심 플로우 E2E 점검
+  - 로그인 → 장소 검색/저장 → 일정 생성(장소 연결) → 일정 조회
+>>>>>>> theirs
 - [ ] 크래시 없이 Android 디버그 빌드 동작
 - [ ] 주요 API 실패 케이스 처리 확인
 
 ## 예상 일정(예시)
 - Week 1: A + B + C-1
+<<<<<<< ours
+<<<<<<< ours
+- Week 2: C-2 + D + E + QA
+=======
 - Week 2: C-2 + D + QA
+>>>>>>> theirs
+=======
+- Week 2: C-2 + D + QA
+>>>>>>> theirs

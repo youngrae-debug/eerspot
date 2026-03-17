@@ -14,7 +14,15 @@
 발생 조건: 장소 저장 성공 시
 
 필드:
+<<<<<<< ours
+<<<<<<< ours
+- `provider` (`naver` | `kakao` | `google`)
+=======
 - `provider` (`naver` | `kakao` | `google` | `manual`)
+>>>>>>> theirs
+=======
+- `provider` (`naver` | `kakao` | `google` | `manual`)
+>>>>>>> theirs
 - `source` (`search` | `discover`)
 - `hasCoordinates` (boolean)
 
