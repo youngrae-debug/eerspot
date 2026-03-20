@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { AppError } from '../../lib/http/errors.js';
 import { KakaoPlaceSearchClient } from './search-client.js';
 
 test('KakaoPlaceSearchClient maps Kakao keyword results into place search results', async () => {
@@ -37,4 +38,24 @@ test('KakaoPlaceSearchClient maps Kakao keyword results into place search result
       providerPlaceId: '987654321',
     },
   ]);
+});
+
+test('KakaoPlaceSearchClient surfaces network failures as provider unavailable errors', async () => {
+  const client = new KakaoPlaceSearchClient('test-key', async () => {
+    throw new TypeError('fetch failed');
+  });
+
+  await assert.rejects(
+    () => client.search('성수'),
+    (error: unknown) => {
+      assert.ok(error instanceof AppError);
+      assert.equal(error.statusCode, 503);
+      assert.equal(error.code, 'SEARCH_PROVIDER_UNAVAILABLE');
+      assert.deepEqual(error.details, {
+        cause: 'fetch failed',
+      });
+
+      return true;
+    },
+  );
 });

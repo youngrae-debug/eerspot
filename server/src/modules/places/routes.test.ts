@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildApp } from '../../app.js';
+import { AppError } from '../../lib/http/errors.js';
 
 async function createAuthenticatedHeader(app: ReturnType<typeof buildApp>) {
   await app.inject({
@@ -136,6 +137,41 @@ test('places endpoints require authorization', async () => {
   });
 
   assert.equal(listResponse.statusCode, 401);
+
+  await app.close();
+});
+
+test('places search returns provider unavailable when upstream search fails', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    placeSearchClient: {
+      search: async () => {
+        throw new AppError(
+          503,
+          'SEARCH_PROVIDER_UNAVAILABLE',
+          'Kakao place search is temporarily unavailable',
+        );
+      },
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const searchResponse = await app.inject({
+    method: 'GET',
+    url: '/api/v1/places/search?query=성수',
+    headers,
+  });
+
+  assert.equal(searchResponse.statusCode, 503);
+  assert.equal(searchResponse.json().error.code, 'SEARCH_PROVIDER_UNAVAILABLE');
 
   await app.close();
 });
