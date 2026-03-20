@@ -107,16 +107,32 @@ export class KakaoPlaceSearchClient implements PlaceSearchClient {
       );
     }
 
-    const response = await this.fetchImpl(
-      `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(
-        normalizedQuery,
-      )}&size=15`,
-      {
-        headers: {
-          Authorization: `KakaoAK ${this.restApiKey}`,
+    let response: Response;
+
+    try {
+      response = await this.fetchImpl(
+        `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(
+          normalizedQuery,
+        )}&size=15`,
+        {
+          headers: {
+            Authorization: `KakaoAK ${this.restApiKey}`,
+          },
         },
-      },
-    );
+      );
+    } catch (error) {
+      throw new AppError(
+        503,
+        'SEARCH_PROVIDER_UNAVAILABLE',
+        'Kakao place search is temporarily unavailable',
+        {
+          cause:
+            error instanceof Error && error.message
+              ? error.message
+              : 'unknown fetch error',
+        },
+      );
+    }
 
     if (!response.ok) {
       throw new AppError(

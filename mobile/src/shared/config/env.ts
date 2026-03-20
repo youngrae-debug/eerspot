@@ -6,6 +6,6 @@ const defaultApiHost =
 export const env = {
   apiBaseUrl: `${defaultApiHost}/api/v1`,
   appEnv: 'dev',
-  mapProvider: 'naver',
+  mapProvider: 'kakao',
   discoverEnabled: false,
 } as const;
