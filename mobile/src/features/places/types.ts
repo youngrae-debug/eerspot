@@ -7,9 +7,14 @@ export type SearchPlace = {
   address: string;
   lat: number;
   lng: number;
+  mapUrl?: string | null;
 };
 
 export type SavedPlace = SearchPlace & {
   id: string;
+  note: string | null;
+  isFavorite: boolean;
   savedAt: string;
+  createdAt: string;
+  updatedAt: string;
 };

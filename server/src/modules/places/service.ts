@@ -76,4 +76,46 @@ export class PlacesService {
 
     return place;
   }
+
+  async updatePlace(input: {
+    userId: string;
+    placeId: string;
+    note?: string | null;
+    isFavorite?: boolean;
+  }): Promise<SavedPlaceRecord> {
+    await this.getPlace(input.userId, input.placeId);
+
+    const nextPlace = this.repository.update(input.placeId, {
+      ...(input.note !== undefined ? { note: normalizeNote(input.note) } : {}),
+      ...(input.isFavorite !== undefined
+        ? { isFavorite: input.isFavorite }
+        : {}),
+    });
+
+    if (!nextPlace || nextPlace.userId !== input.userId) {
+      throw new AppError(404, 'NOT_FOUND', 'place not found');
+    }
+
+    return nextPlace;
+  }
+
+  async deletePlace(userId: string, placeId: string): Promise<void> {
+    await this.getPlace(userId, placeId);
+
+    const deletedPlace = this.repository.delete(placeId);
+
+    if (!deletedPlace || deletedPlace.userId !== userId) {
+      throw new AppError(404, 'NOT_FOUND', 'place not found');
+    }
+  }
+}
+
+function normalizeNote(note: string | null | undefined): string | null {
+  if (note === null || note === undefined) {
+    return null;
+  }
+
+  const trimmedNote = note.trim();
+
+  return trimmedNote ? trimmedNote : null;
 }

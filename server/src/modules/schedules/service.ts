@@ -107,6 +107,10 @@ export class SchedulesService {
     }
   }
 
+  hasActiveSchedulesForPlace(userId: string, placeId: string): boolean {
+    return this.repository.existsActiveByPlaceId({ userId, placeId });
+  }
+
   private getOwnedSchedule(userId: string, scheduleId: string): ScheduleRecord {
     const schedule = this.repository.findById(scheduleId);
 

@@ -46,3 +46,26 @@ export async function getPlace(
 ): Promise<SavedPlace> {
   return authorizedRequest(`/places/${placeId}`);
 }
+
+export async function updatePlace(
+  authorizedRequest: AuthorizedRequest,
+  placeId: string,
+  patch: {
+    note?: string | null;
+    isFavorite?: boolean;
+  },
+): Promise<SavedPlace> {
+  return authorizedRequest(`/places/${placeId}`, {
+    method: 'PATCH',
+    body: patch,
+  });
+}
+
+export async function deletePlace(
+  authorizedRequest: AuthorizedRequest,
+  placeId: string,
+): Promise<void> {
+  return authorizedRequest(`/places/${placeId}`, {
+    method: 'DELETE',
+  });
+}

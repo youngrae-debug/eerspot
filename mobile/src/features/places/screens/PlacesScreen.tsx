@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -12,8 +12,23 @@ import { ApiError } from '../../../shared/api/http';
 import { useLanguage } from '../../../shared/i18n/LanguageContext';
 import { colors } from '../../../shared/theme/colors';
 import { useAuth } from '../../auth/context/AuthContext';
-import { getPlace, listPlaces, savePlace, searchPlaces } from '../api/placesApi';
+import {
+  deletePlace,
+  getPlace,
+  listPlaces,
+  savePlace,
+  searchPlaces,
+  updatePlace,
+} from '../api/placesApi';
 import type { SavedPlace, SearchPlace } from '../types';
+
+type SavedFilter = 'all' | 'favorites';
+type SavedSort = 'recent' | 'name';
+
+type DetailDraft = {
+  isFavorite: boolean;
+  note: string;
+};
 
 export function PlacesScreen(): React.JSX.Element {
   const { authorizedRequest } = useAuth();
@@ -28,6 +43,13 @@ export function PlacesScreen(): React.JSX.Element {
   const [loadingSearch, setLoadingSearch] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [savingPlaceId, setSavingPlaceId] = useState<string | null>(null);
+  const [savingDetailPlaceId, setSavingDetailPlaceId] = useState<string | null>(
+    null,
+  );
+  const [deletingPlaceId, setDeletingPlaceId] = useState<string | null>(null);
+  const [savedFilter, setSavedFilter] = useState<SavedFilter>('all');
+  const [savedSort, setSavedSort] = useState<SavedSort>('recent');
+  const [detailDraft, setDetailDraft] = useState<DetailDraft | null>(null);
 
   useEffect(() => {
     if (didLoad) {
@@ -52,6 +74,30 @@ export function PlacesScreen(): React.JSX.Element {
     loadInitialPlaces().catch(handleAsyncError);
   }, [authorizedRequest, didLoad]);
 
+  const filteredSavedPlaces = useMemo(() => {
+    const nextItems = savedPlaces.filter(place => {
+      if (savedFilter === 'favorites') {
+        return Boolean(place.isFavorite);
+      }
+
+      return true;
+    });
+
+    return [...nextItems].sort((left, right) => {
+      if (savedSort === 'name') {
+        return left.name.localeCompare(right.name);
+      }
+
+      return right.savedAt.localeCompare(left.savedAt);
+    });
+  }, [savedFilter, savedPlaces, savedSort]);
+
+  const hasDetailChanges =
+    selectedPlace && detailDraft
+      ? normalizeNoteDraft(detailDraft.note) !== (selectedPlace.note ?? null) ||
+        detailDraft.isFavorite !== Boolean(selectedPlace.isFavorite)
+      : false;
+
   const loadSavedPlaces = async () => {
     setLoadingSaved(true);
 
@@ -66,10 +112,14 @@ export function PlacesScreen(): React.JSX.Element {
 
         if (refreshedSelectedPlace) {
           setSelectedPlace(refreshedSelectedPlace);
+          setDetailDraft(createDetailDraft(refreshedSelectedPlace));
         } else {
           setSelectedPlace(null);
+          setDetailDraft(null);
         }
       }
+    } catch (caughtError) {
+      setFeedback(extractErrorMessage(caughtError));
     } finally {
       setLoadingSaved(false);
     }
@@ -103,6 +153,7 @@ export function PlacesScreen(): React.JSX.Element {
     try {
       const place = await getPlace(authorizedRequest, placeId);
       setSelectedPlace(place);
+      setDetailDraft(createDetailDraft(place));
       setFeedback(null);
     } catch (caughtError) {
       setFeedback(extractErrorMessage(caughtError));
@@ -136,6 +187,58 @@ export function PlacesScreen(): React.JSX.Element {
       }
     } finally {
       setSavingPlaceId(null);
+    }
+  };
+
+  const handleSaveDetail = async () => {
+    if (!selectedPlace || !detailDraft) {
+      return;
+    }
+
+    setSavingDetailPlaceId(selectedPlace.id);
+    setFeedback(null);
+
+    try {
+      const updatedPlace = await updatePlace(authorizedRequest, selectedPlace.id, {
+        note: normalizeNoteDraft(detailDraft.note),
+        isFavorite: detailDraft.isFavorite,
+      });
+
+      setSelectedPlace(updatedPlace);
+      setDetailDraft(createDetailDraft(updatedPlace));
+      setSavedPlaces(currentPlaces => {
+        return currentPlaces.map(place => {
+          return place.id === updatedPlace.id ? updatedPlace : place;
+        });
+      });
+      setFeedback(t('search_place_updated'));
+    } catch (caughtError) {
+      setFeedback(extractErrorMessage(caughtError));
+    } finally {
+      setSavingDetailPlaceId(null);
+    }
+  };
+
+  const handleDeleteSelectedPlace = async () => {
+    if (!selectedPlace) {
+      return;
+    }
+
+    setDeletingPlaceId(selectedPlace.id);
+    setFeedback(null);
+
+    try {
+      await deletePlace(authorizedRequest, selectedPlace.id);
+      setSavedPlaces(currentPlaces => {
+        return currentPlaces.filter(place => place.id !== selectedPlace.id);
+      });
+      setSelectedPlace(null);
+      setDetailDraft(null);
+      setFeedback(t('search_place_deleted'));
+    } catch (caughtError) {
+      setFeedback(extractErrorMessage(caughtError));
+    } finally {
+      setDeletingPlaceId(null);
     }
   };
 
@@ -218,65 +321,250 @@ export function PlacesScreen(): React.JSX.Element {
         </View>
       )}
 
-      {loadingSaved || savedPlaces.length > 0 || selectedPlace ? (
-        <>
-          <View style={styles.sectionGap} />
+      <View style={styles.sectionGap} />
+      <View style={styles.savedSectionHeader}>
+        <View style={styles.savedSectionCopy}>
           <Text style={styles.sectionTitle}>{t('search_saved_places_title')}</Text>
-          <View style={styles.divider} />
+          <Text style={styles.sectionDescription}>
+            {t('search_saved_places_desc')}
+          </Text>
+        </View>
+        <Text style={styles.savedCount}>
+          {t('search_saved_places_count', { count: filteredSavedPlaces.length })}
+        </Text>
+      </View>
+      <View style={styles.divider} />
 
-          {loadingSaved ? (
-            <View style={styles.loadingBlock}>
-              <ActivityIndicator color={colors.textSecondary} size="small" />
-            </View>
-          ) : (
-            <View style={styles.listSection}>
-              {savedPlaces.map((place, index) => {
-                const isSelected = selectedPlace?.id === place.id;
+      <View style={styles.controlRow}>
+        <ChipButton
+          active={savedFilter === 'all'}
+          label={t('search_saved_filter_all')}
+          onPress={() => setSavedFilter('all')}
+        />
+        <ChipButton
+          active={savedFilter === 'favorites'}
+          label={t('search_saved_filter_favorites')}
+          onPress={() => setSavedFilter('favorites')}
+        />
+      </View>
 
-                return (
-                  <View key={place.id}>
-                    <Pressable
-                      onPress={() => {
-                        openPlaceDetail(place.id).catch(handleAsyncError);
-                      }}
-                      style={styles.row}>
-                      <View style={styles.rowCopy}>
-                        <Text
-                          style={[
-                            styles.rowTitle,
-                            isSelected ? styles.rowTitleSelected : null,
-                          ]}>
-                          {place.name}
-                        </Text>
-                        <Text style={styles.rowMeta}>{place.address}</Text>
-                      </View>
-                      <Text style={styles.savedMeta}>
-                        {new Date(place.savedAt).toLocaleDateString()}
+      <View style={styles.controlRow}>
+        <ChipButton
+          active={savedSort === 'recent'}
+          label={t('search_saved_sort_recent')}
+          onPress={() => setSavedSort('recent')}
+        />
+        <ChipButton
+          active={savedSort === 'name'}
+          label={t('search_saved_sort_name')}
+          onPress={() => setSavedSort('name')}
+        />
+      </View>
+
+      {loadingSaved ? (
+        <View style={styles.loadingBlock}>
+          <ActivityIndicator color={colors.textSecondary} size="small" />
+        </View>
+      ) : filteredSavedPlaces.length === 0 ? (
+        <Text style={styles.emptyText}>
+          {savedPlaces.length === 0
+            ? t('search_no_saved_places')
+            : t('search_saved_places_empty_filtered')}
+        </Text>
+      ) : (
+        <View style={styles.listSection}>
+          {filteredSavedPlaces.map((place, index) => {
+            const isSelected = selectedPlace?.id === place.id;
+
+            return (
+              <View key={place.id}>
+                <Pressable
+                  onPress={() => {
+                    openPlaceDetail(place.id).catch(handleAsyncError);
+                  }}
+                  style={[
+                    styles.savedRow,
+                    isSelected ? styles.savedRowSelected : null,
+                  ]}
+                  testID={`saved-place-row-${place.id}`}>
+                  <View style={styles.rowCopy}>
+                    <View style={styles.savedRowTitleLine}>
+                      <Text
+                        style={[
+                          styles.rowTitle,
+                          isSelected ? styles.rowTitleSelected : null,
+                        ]}>
+                        {place.name}
                       </Text>
-                    </Pressable>
-
-                    {index < savedPlaces.length - 1 ? <View style={styles.divider} /> : null}
+                      {place.isFavorite ? (
+                        <View style={styles.savedBadge}>
+                          <Text style={styles.savedBadgeLabel}>
+                            {t('search_place_favorite_badge')}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.rowMeta}>{place.address}</Text>
+                    <Text style={styles.savedSubmeta}>
+                      {`${place.provider.toUpperCase()} · ${formatDateLabel(
+                        place.savedAt,
+                      )}`}
+                    </Text>
                   </View>
-                );
-              })}
-            </View>
-          )}
+                  <Text style={styles.savedMeta}>
+                    {t('search_selected_place')}
+                  </Text>
+                </Pressable>
 
-          {loadingDetail ? (
-            <View style={styles.loadingBlock}>
-              <ActivityIndicator color={colors.textSecondary} size="small" />
-            </View>
-          ) : selectedPlace ? (
-            <>
-              <View style={styles.divider} />
-              <View style={styles.detailBlock}>
-                <Text style={styles.detailTitle}>{selectedPlace.name}</Text>
-                <Text style={styles.detailText}>{selectedPlace.address}</Text>
+                {index < filteredSavedPlaces.length - 1 ? (
+                  <View style={styles.divider} />
+                ) : null}
               </View>
-            </>
-          ) : null}
-        </>
-      ) : null}
+            );
+          })}
+        </View>
+      )}
+
+      <View style={styles.divider} />
+
+      {loadingDetail ? (
+        <View style={styles.loadingBlock}>
+          <ActivityIndicator color={colors.textSecondary} size="small" />
+        </View>
+      ) : selectedPlace && detailDraft ? (
+        <View style={styles.detailCard}>
+          <View style={styles.detailHeader}>
+            <View style={styles.detailHeaderCopy}>
+              <Text style={styles.detailEyebrow}>{t('search_selected_place')}</Text>
+              <Text style={styles.detailTitle}>{selectedPlace.name}</Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                setDetailDraft(currentDraft => {
+                  if (!currentDraft) {
+                    return currentDraft;
+                  }
+
+                  return {
+                    ...currentDraft,
+                    isFavorite: !currentDraft.isFavorite,
+                  };
+                });
+              }}
+              style={[
+                styles.favoriteButton,
+                detailDraft.isFavorite ? styles.favoriteButtonActive : null,
+              ]}
+              testID="place-detail-favorite-button">
+              <Text
+                style={[
+                  styles.favoriteButtonLabel,
+                  detailDraft.isFavorite
+                    ? styles.favoriteButtonLabelActive
+                    : null,
+                ]}>
+                {detailDraft.isFavorite
+                  ? t('search_place_unfavorite')
+                  : t('search_place_favorite')}
+              </Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.detailText}>{selectedPlace.address}</Text>
+
+          <View style={styles.detailMetaGrid}>
+            <DetailMetaItem
+              label={t('search_place_provider')}
+              value={selectedPlace.provider.toUpperCase()}
+            />
+            <DetailMetaItem
+              label={t('search_place_saved_at')}
+              value={formatDateLabel(selectedPlace.savedAt)}
+            />
+            <DetailMetaItem
+              label={t('search_place_updated_at')}
+              value={formatDateLabel(selectedPlace.updatedAt)}
+            />
+            <DetailMetaItem
+              label={t('search_place_coordinates')}
+              value={formatCoordinates(selectedPlace)}
+            />
+          </View>
+
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>{t('search_place_note')}</Text>
+            <TextInput
+              multiline
+              onChangeText={nextValue => {
+                setDetailDraft(currentDraft => {
+                  if (!currentDraft) {
+                    return currentDraft;
+                  }
+
+                  return {
+                    ...currentDraft,
+                    note: nextValue,
+                  };
+                });
+              }}
+              placeholder={t('search_place_note_placeholder')}
+              placeholderTextColor={colors.textMuted}
+              style={[styles.searchInput, styles.noteInput]}
+              testID="place-detail-note-input"
+              value={detailDraft.note}
+            />
+          </View>
+
+          <View style={styles.detailActions}>
+            <Pressable
+              disabled={
+                deletingPlaceId === selectedPlace.id ||
+                savingDetailPlaceId === selectedPlace.id
+              }
+              onPress={() => {
+                handleDeleteSelectedPlace().catch(handleAsyncError);
+              }}
+              style={styles.deleteButton}
+              testID="place-detail-delete-button">
+              {deletingPlaceId === selectedPlace.id ? (
+                <ActivityIndicator color={colors.surfaceElevated} size="small" />
+              ) : (
+                <Text style={styles.deleteButtonLabel}>
+                  {t('search_place_delete')}
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              disabled={
+                !hasDetailChanges ||
+                deletingPlaceId === selectedPlace.id ||
+                savingDetailPlaceId === selectedPlace.id
+              }
+              onPress={() => {
+                handleSaveDetail().catch(handleAsyncError);
+              }}
+              style={[
+                styles.saveButton,
+                !hasDetailChanges ? styles.buttonDisabledSurface : null,
+              ]}
+              testID="place-detail-save-button">
+              {savingDetailPlaceId === selectedPlace.id ? (
+                <ActivityIndicator color={colors.surfaceElevated} size="small" />
+              ) : (
+                <Text style={styles.saveButtonLabel}>
+                  {t('search_place_save_changes')}
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.detailPlaceholder}>
+          <Text style={styles.detailEyebrow}>{t('search_selected_place')}</Text>
+          <Text style={styles.emptyText}>{t('search_place_detail_hint')}</Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -299,6 +587,67 @@ function ActionText({
       </Text>
     </Pressable>
   );
+}
+
+type ChipButtonProps = {
+  active: boolean;
+  label: string;
+  onPress: () => void;
+};
+
+function ChipButton({
+  active,
+  label,
+  onPress,
+}: ChipButtonProps): React.JSX.Element {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.chipButton, active ? styles.chipButtonActive : null]}>
+      <Text
+        style={[styles.chipButtonLabel, active ? styles.chipButtonLabelActive : null]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+type DetailMetaItemProps = {
+  label: string;
+  value: string;
+};
+
+function DetailMetaItem({
+  label,
+  value,
+}: DetailMetaItemProps): React.JSX.Element {
+  return (
+    <View style={styles.detailMetaItem}>
+      <Text style={styles.detailMetaLabel}>{label}</Text>
+      <Text style={styles.detailMetaValue}>{value}</Text>
+    </View>
+  );
+}
+
+function createDetailDraft(place: SavedPlace): DetailDraft {
+  return {
+    isFavorite: Boolean(place.isFavorite),
+    note: place.note ?? '',
+  };
+}
+
+function formatCoordinates(place: Pick<SearchPlace, 'lat' | 'lng'>): string {
+  return `${place.lat.toFixed(5)}, ${place.lng.toFixed(5)}`;
+}
+
+function formatDateLabel(value: string): string {
+  return new Date(value).toLocaleDateString();
+}
+
+function normalizeNoteDraft(note: string): string | null {
+  const trimmedNote = note.trim();
+
+  return trimmedNote ? trimmedNote : null;
 }
 
 function extractErrorMessage(error: unknown): string {
@@ -377,6 +726,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 22,
   },
+  sectionDescription: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    lineHeight: 20,
+  },
   listSection: {
     gap: 0,
   },
@@ -393,6 +747,24 @@ const styles = StyleSheet.create({
   rowCopy: {
     flex: 1,
     gap: 4,
+  },
+  savedRow: {
+    alignItems: 'flex-start',
+    borderRadius: 18,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  savedRowSelected: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 12,
+  },
+  savedRowTitleLine: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   rowTitle: {
     color: colors.textPrimary,
@@ -413,6 +785,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     paddingTop: 4,
   },
+  savedSubmeta: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  savedBadge: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderStrong,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  savedBadgeLabel: {
+    color: colors.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   actionTextButton: {
     justifyContent: 'center',
     minHeight: 32,
@@ -425,16 +815,183 @@ const styles = StyleSheet.create({
   detailBlock: {
     gap: 6,
   },
+  savedSectionHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  savedSectionCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  savedCount: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    paddingTop: 4,
+  },
+  controlRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chipButton: {
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  chipButtonActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  chipButtonLabel: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  chipButtonLabelActive: {
+    color: colors.surfaceElevated,
+  },
+  detailCard: {
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 16,
+    padding: 18,
+  },
+  detailPlaceholder: {
+    backgroundColor: colors.surfaceElevated,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 10,
+    padding: 18,
+  },
+  detailHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  detailHeaderCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  detailEyebrow: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    lineHeight: 18,
+    textTransform: 'uppercase',
+  },
   detailTitle: {
     color: colors.textPrimary,
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '700',
-    lineHeight: 22,
+    lineHeight: 28,
   },
   detailText: {
     color: colors.textSecondary,
     fontSize: 14,
     lineHeight: 22,
+  },
+  favoriteButton: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderStrong,
+    borderRadius: 999,
+    borderWidth: 1,
+    minHeight: 36,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  favoriteButtonActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  favoriteButtonLabel: {
+    color: colors.textPrimary,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  favoriteButtonLabelActive: {
+    color: colors.surfaceElevated,
+  },
+  detailMetaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  detailMetaItem: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    gap: 4,
+    minWidth: '47%',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  detailMetaLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  detailMetaValue: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 20,
+  },
+  fieldBlock: {
+    gap: 8,
+  },
+  fieldLabel: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  noteInput: {
+    minHeight: 120,
+    paddingBottom: 16,
+    paddingTop: 16,
+    textAlignVertical: 'top',
+  },
+  detailActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  saveButton: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: 16,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 16,
+  },
+  saveButtonLabel: {
+    color: colors.surfaceElevated,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  deleteButton: {
+    alignItems: 'center',
+    backgroundColor: colors.danger,
+    borderRadius: 16,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 16,
+  },
+  deleteButtonLabel: {
+    color: colors.surfaceElevated,
+    fontSize: 14,
+    fontWeight: '700',
   },
   emptyText: {
     color: colors.textSecondary,
@@ -442,6 +999,9 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   buttonDisabled: {
+    opacity: 0.45,
+  },
+  buttonDisabledSurface: {
     opacity: 0.45,
   },
 });

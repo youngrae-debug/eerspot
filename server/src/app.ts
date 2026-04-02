@@ -11,10 +11,13 @@ import {
 import {
   InMemoryPlacesRepository,
   KakaoPlaceSearchClient,
+  LinkPlaceDiscoveryService,
   PlacesService,
   StaticCatalogPlaceSearchClient,
   placesRoutes,
 } from './modules/places/index.js';
+import type { ImageOcrClient } from './modules/places/image-ocr.js';
+import { VisionImageOcrClient } from './modules/places/image-ocr.js';
 import {
   InMemorySchedulesRepository,
   SchedulesService,
@@ -27,6 +30,8 @@ type BuildAppOptions = {
   placeSearchClient?: {
     search: (query: string) => Promise<import('./modules/places/types.js').PlaceSearchResult[]>;
   };
+  pageFetchImpl?: typeof fetch;
+  imageOcrClient?: ImageOcrClient;
 };
 
 export function buildApp(options: BuildAppOptions = {}) {
@@ -43,6 +48,12 @@ export function buildApp(options: BuildAppOptions = {}) {
     placesRepository,
     env.MAP_PROVIDER,
     placeSearchClient,
+  );
+  const linkPlaceDiscoveryService = new LinkPlaceDiscoveryService(
+    placeSearchClient,
+    new StaticCatalogPlaceSearchClient(env.MAP_PROVIDER),
+    options.pageFetchImpl ?? fetch,
+    options.imageOcrClient ?? new VisionImageOcrClient(),
   );
   const schedulesRepository = new InMemorySchedulesRepository();
   const schedulesService = new SchedulesService(
@@ -76,7 +87,9 @@ export function buildApp(options: BuildAppOptions = {}) {
   void app.register(placesRoutes, {
     prefix: '/api/v1/places',
     authService,
+    linkPlaceDiscoveryService,
     placesService,
+    schedulesService,
   });
   void app.register(schedulesRoutes, {
     prefix: '/api/v1/schedules',

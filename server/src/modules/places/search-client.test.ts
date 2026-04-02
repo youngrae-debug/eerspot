@@ -15,6 +15,7 @@ test('KakaoPlaceSearchClient maps Kakao keyword results into place search result
               address_name: '서울 성동구 성수동2가 315-55',
               id: '987654321',
               place_name: '성수 대림창고',
+              place_url: 'https://place.map.kakao.com/987654321',
               road_address_name: '서울 성동구 성수이로 78',
               x: '127.055236',
               y: '37.541569',
@@ -36,6 +37,7 @@ test('KakaoPlaceSearchClient maps Kakao keyword results into place search result
       name: '성수 대림창고',
       provider: 'kakao',
       providerPlaceId: '987654321',
+      mapUrl: 'https://place.map.kakao.com/987654321',
     },
   ]);
 });

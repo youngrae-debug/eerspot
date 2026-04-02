@@ -97,4 +97,14 @@ export class InMemorySchedulesRepository {
 
     return nextSchedule;
   }
+
+  existsActiveByPlaceId(input: { userId: string; placeId: string }): boolean {
+    return [...this.schedules.values()].some(schedule => {
+      return (
+        schedule.userId === input.userId &&
+        !schedule.deletedAt &&
+        schedule.placeId === input.placeId
+      );
+    });
+  }
 }

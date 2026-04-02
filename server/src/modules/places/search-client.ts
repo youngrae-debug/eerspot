@@ -55,6 +55,7 @@ type KakaoKeywordSearchResponse = {
     id: string;
     place_name: string;
     address_name: string;
+    place_url?: string;
     road_address_name: string;
     x: string;
     y: string;
@@ -82,6 +83,7 @@ export class StaticCatalogPlaceSearchClient implements PlaceSearchClient {
         address: seed.address,
         lat: seed.lat,
         lng: seed.lng,
+        mapUrl: null,
       }));
   }
 }
@@ -154,6 +156,7 @@ export class KakaoPlaceSearchClient implements PlaceSearchClient {
       address: document.road_address_name || document.address_name,
       lat: Number(document.y),
       lng: Number(document.x),
+      mapUrl: document.place_url ?? null,
     }));
   }
 }

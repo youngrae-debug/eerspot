@@ -12,14 +12,19 @@ jest.mock('../src/features/auth/context/AuthContext', () => ({
 }));
 
 jest.mock('../src/features/places/api/placesApi', () => ({
+  deletePlace: jest.fn(),
   getPlace: jest.fn(),
   listPlaces: jest.fn(),
+  updatePlace: jest.fn(),
   savePlace: jest.fn(),
   searchPlaces: jest.fn(),
 }));
 
 const placesApi = jest.requireMock('../src/features/places/api/placesApi') as {
+  deletePlace: jest.Mock;
+  getPlace: jest.Mock;
   listPlaces: jest.Mock;
+  updatePlace: jest.Mock;
 };
 
 function extractTextContent(children: React.ReactNode): string {
@@ -47,7 +52,10 @@ function getAllTexts(
 }
 
 afterEach(() => {
+  placesApi.deletePlace.mockReset();
+  placesApi.getPlace.mockReset();
   placesApi.listPlaces.mockReset();
+  placesApi.updatePlace.mockReset();
 });
 
 test('keeps the search screen quiet on first render', async () => {
@@ -61,9 +69,13 @@ test('keeps the search screen quiet on first render', async () => {
         lat: 37.544,
         lng: 127.055,
         name: 'Cafe Alpha',
+        note: null,
+        isFavorite: false,
         provider: 'naver',
         providerPlaceId: 'naver_1',
         savedAt: '2026-03-16T10:00:00.000Z',
+        createdAt: '2026-03-16T10:00:00.000Z',
+        updatedAt: '2026-03-16T10:00:00.000Z',
       },
     ],
   });
@@ -85,4 +97,101 @@ test('keeps the search screen quiet on first render', async () => {
   expect(getAllTexts(instance.root)).toContain('Search places by keyword.');
   expect(getAllTexts(instance.root)).toContain('Provider results 0');
   expect(getAllTexts(instance.root).filter(text => text === 'Cafe Alpha')).toHaveLength(1);
+});
+
+test('updates and deletes a saved place from the detail panel', async () => {
+  let instance!: ReactTestRenderer.ReactTestRenderer;
+
+  placesApi.listPlaces.mockResolvedValue({
+    items: [
+      {
+        address: '서울 성동구 연무장길 1',
+        id: 'plc_1',
+        lat: 37.544,
+        lng: 127.055,
+        name: 'Cafe Alpha',
+        note: null,
+        isFavorite: false,
+        provider: 'naver',
+        providerPlaceId: 'naver_1',
+        savedAt: '2026-03-16T10:00:00.000Z',
+        createdAt: '2026-03-16T10:00:00.000Z',
+        updatedAt: '2026-03-16T10:00:00.000Z',
+      },
+    ],
+  });
+  placesApi.getPlace.mockResolvedValue({
+    address: '서울 성동구 연무장길 1',
+    id: 'plc_1',
+    lat: 37.544,
+    lng: 127.055,
+    name: 'Cafe Alpha',
+    note: null,
+    isFavorite: false,
+    provider: 'naver',
+    providerPlaceId: 'naver_1',
+    savedAt: '2026-03-16T10:00:00.000Z',
+    createdAt: '2026-03-16T10:00:00.000Z',
+    updatedAt: '2026-03-16T10:00:00.000Z',
+  });
+  placesApi.updatePlace.mockResolvedValue({
+    address: '서울 성동구 연무장길 1',
+    id: 'plc_1',
+    lat: 37.544,
+    lng: 127.055,
+    name: 'Cafe Alpha',
+    note: 'Window seat',
+    isFavorite: true,
+    provider: 'naver',
+    providerPlaceId: 'naver_1',
+    savedAt: '2026-03-16T10:00:00.000Z',
+    createdAt: '2026-03-16T10:00:00.000Z',
+    updatedAt: '2026-03-18T09:00:00.000Z',
+  });
+  placesApi.deletePlace.mockResolvedValue(undefined);
+
+  await ReactTestRenderer.act(async () => {
+    instance = ReactTestRenderer.create(
+      <LanguageProvider>
+        <PlacesScreen />
+      </LanguageProvider>,
+    );
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await Promise.resolve();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    instance.root.findByProps({ testID: 'saved-place-row-plc_1' }).props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    await Promise.resolve();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    instance.root.findByProps({ testID: 'place-detail-favorite-button' }).props.onPress();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    instance.root
+      .findByProps({ testID: 'place-detail-note-input' })
+      .props.onChangeText('Window seat');
+  });
+
+  await ReactTestRenderer.act(async () => {
+    instance.root.findByProps({ testID: 'place-detail-save-button' }).props.onPress();
+  });
+
+  expect(placesApi.updatePlace).toHaveBeenCalledWith(expect.any(Function), 'plc_1', {
+    note: 'Window seat',
+    isFavorite: true,
+  });
+
+  await ReactTestRenderer.act(async () => {
+    instance.root.findByProps({ testID: 'place-detail-delete-button' }).props.onPress();
+  });
+
+  expect(placesApi.deletePlace).toHaveBeenCalledWith(expect.any(Function), 'plc_1');
 });

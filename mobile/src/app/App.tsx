@@ -47,7 +47,10 @@ function AppRoot(): React.JSX.Element {
   if (status === 'anonymous' || !session) {
     return (
       <SafeAreaView edges={['top']} style={styles.safeArea}>
-        <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor={colors.background}
+        />
         <View style={styles.authOnlyContainer}>
           <AuthScreen />
         </View>
@@ -71,6 +74,10 @@ function AuthenticatedApp({
   const { t } = useLanguage();
   const [activeTab, setActiveTab] = useState<TabKey>('calendar');
   const [calendarFocusRequestKey, setCalendarFocusRequestKey] = useState(0);
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
+  const [calendarRequestedDateKey, setCalendarRequestedDateKey] = useState<
+    string | null
+  >(null);
   const tabs = [
     {
       key: 'calendar' as const,
@@ -93,10 +100,13 @@ function AuthenticatedApp({
       title: t('screen_my'),
     },
   ];
-  const activeTabDefinition = tabs.find(tab => tab.key === activeTab) ?? tabs[0];
+  const activeTabDefinition =
+    tabs.find(tab => tab.key === activeTab) ?? tabs[0];
+  const showTopBar = activeTab !== 'calendar';
 
   const handleTabPress = (tabKey: TabKey) => {
     if (tabKey === 'calendar') {
+      setCalendarRequestedDateKey(null);
       setActiveTab('calendar');
       setCalendarFocusRequestKey(current => current + 1);
       return;
@@ -105,20 +115,31 @@ function AuthenticatedApp({
     setActiveTab(tabKey);
   };
 
+  const handleDiscoverScheduleCreated = (dateKey: string) => {
+    setCalendarRequestedDateKey(dateKey);
+    setCalendarRefreshKey(current => current + 1);
+    setActiveTab('calendar');
+    setCalendarFocusRequestKey(current => current + 1);
+  };
+
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       <View style={styles.authenticatedContainer}>
-        <View style={styles.topBar}>
-          <View style={styles.topBarSide} />
-          <Text style={styles.topBarTitle}>{activeTabDefinition.title}</Text>
-          <View style={styles.topBarAction} />
-        </View>
+        {showTopBar ? (
+          <View style={styles.topBar}>
+            <View style={styles.topBarSide} />
+            <Text style={styles.topBarTitle}>{activeTabDefinition.title}</Text>
+            <View style={styles.topBarAction} />
+          </View>
+        ) : null}
 
         {activeTab === 'calendar' ? (
           <CalendarScreen
             bottomInset={120 + insets.bottom}
+            dataRefreshKey={calendarRefreshKey}
             focusRequestKey={calendarFocusRequestKey}
+            requestedDateKey={calendarRequestedDateKey}
           />
         ) : (
           <ScrollView
@@ -128,9 +149,14 @@ function AuthenticatedApp({
                 paddingBottom: 120 + insets.bottom,
               },
             ]}
-            showsVerticalScrollIndicator={false}>
+            showsVerticalScrollIndicator={false}
+          >
             {activeTab === 'places' ? <PlacesScreen /> : null}
-            {activeTab === 'discover' ? <DiscoverScreen /> : null}
+            {activeTab === 'discover' ? (
+              <DiscoverScreen
+                onScheduleCreated={handleDiscoverScheduleCreated}
+              />
+            ) : null}
             {activeTab === 'my' ? (
               <MyScreen email={email} onSignOut={onSignOut} />
             ) : null}
@@ -143,7 +169,8 @@ function AuthenticatedApp({
             {
               paddingBottom: Math.max(insets.bottom, 12),
             },
-          ]}>
+          ]}
+        >
           {tabs.map(tab => {
             const isActive = tab.key === activeTab;
 
@@ -151,13 +178,15 @@ function AuthenticatedApp({
               <Pressable
                 key={tab.key}
                 onPress={() => handleTabPress(tab.key)}
-                style={styles.bottomTabButton}>
+                style={styles.bottomTabButton}
+              >
                 <TabGlyph tabKey={tab.key} active={isActive} />
                 <Text
                   style={[
                     styles.bottomTabLabel,
                     isActive ? styles.bottomTabLabelActive : null,
-                  ]}>
+                  ]}
+                >
                   {tab.label}
                 </Text>
               </Pressable>
@@ -200,7 +229,9 @@ function TabGlyph({ active, tabKey }: TabGlyphProps): React.JSX.Element {
   if (tabKey === 'places') {
     return (
       <View style={styles.searchGlyphWrap}>
-        <View style={[styles.searchGlyph, active ? styles.glyphActive : null]} />
+        <View
+          style={[styles.searchGlyph, active ? styles.glyphActive : null]}
+        />
         <View
           style={[
             styles.searchGlyphHandle,
@@ -214,16 +245,24 @@ function TabGlyph({ active, tabKey }: TabGlyphProps): React.JSX.Element {
   if (tabKey === 'my') {
     return (
       <View style={styles.discoverGlyphWrap}>
-        <View style={[styles.discoverGlyphHead, active ? styles.glyphActive : null]} />
-        <View style={[styles.myGlyphBody, active ? styles.glyphActive : null]} />
+        <View
+          style={[styles.discoverGlyphHead, active ? styles.glyphActive : null]}
+        />
+        <View
+          style={[styles.myGlyphBody, active ? styles.glyphActive : null]}
+        />
       </View>
     );
   }
 
   return (
     <View style={styles.discoverGlyphWrap}>
-      <View style={[styles.discoverGlyphHead, active ? styles.glyphActive : null]} />
-      <View style={[styles.discoverGlyphBody, active ? styles.glyphActive : null]} />
+      <View
+        style={[styles.discoverGlyphHead, active ? styles.glyphActive : null]}
+      />
+      <View
+        style={[styles.discoverGlyphBody, active ? styles.glyphActive : null]}
+      />
     </View>
   );
 }
@@ -276,37 +315,39 @@ const styles = StyleSheet.create({
   },
   topBar: {
     alignItems: 'center',
+    borderBottomColor: colors.divider,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 10,
+    paddingBottom: 14,
+    paddingHorizontal: 24,
+    paddingTop: 10,
   },
   topBarSide: {
     minWidth: 72,
   },
   topBarTitle: {
     color: colors.textPrimary,
-    fontSize: 16,
-    fontWeight: '700',
-    letterSpacing: -0.1,
+    fontSize: 15,
+    fontWeight: '600',
+    letterSpacing: -0.2,
   },
   topBarAction: {
     minWidth: 72,
   },
   authenticatedContentContainer: {
     gap: 28,
-    paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingHorizontal: 24,
+    paddingTop: 18,
   },
   bottomTabBar: {
     backgroundColor: colors.surfaceElevated,
     borderTopColor: colors.border,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     left: 0,
-    paddingHorizontal: 12,
-    paddingTop: 12,
+    paddingHorizontal: 10,
+    paddingTop: 10,
     position: 'absolute',
     right: 0,
     bottom: 0,
