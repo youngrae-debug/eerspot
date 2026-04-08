@@ -25,6 +25,8 @@ import { colors } from '../shared/theme/colors';
 
 type TabKey = 'calendar' | 'places' | 'discover' | 'my';
 
+const TAB_BAR_CONTENT_INSET = 88;
+
 function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
@@ -82,27 +84,20 @@ function AuthenticatedApp({
     {
       key: 'calendar' as const,
       label: t('tab_calendar'),
-      title: t('screen_calendar'),
     },
     {
       key: 'places' as const,
       label: t('tab_search'),
-      title: t('screen_search'),
     },
     {
       key: 'discover' as const,
       label: t('tab_discover'),
-      title: t('screen_discover'),
     },
     {
       key: 'my' as const,
       label: t('tab_my'),
-      title: t('screen_my'),
     },
   ];
-  const activeTabDefinition =
-    tabs.find(tab => tab.key === activeTab) ?? tabs[0];
-  const showTopBar = activeTab !== 'calendar';
 
   const handleTabPress = (tabKey: TabKey) => {
     if (tabKey === 'calendar') {
@@ -126,17 +121,9 @@ function AuthenticatedApp({
     <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
       <View style={styles.authenticatedContainer}>
-        {showTopBar ? (
-          <View style={styles.topBar}>
-            <View style={styles.topBarSide} />
-            <Text style={styles.topBarTitle}>{activeTabDefinition.title}</Text>
-            <View style={styles.topBarAction} />
-          </View>
-        ) : null}
-
         {activeTab === 'calendar' ? (
           <CalendarScreen
-            bottomInset={120 + insets.bottom}
+            bottomInset={TAB_BAR_CONTENT_INSET + insets.bottom}
             dataRefreshKey={calendarRefreshKey}
             focusRequestKey={calendarFocusRequestKey}
             requestedDateKey={calendarRequestedDateKey}
@@ -146,7 +133,7 @@ function AuthenticatedApp({
             contentContainerStyle={[
               styles.authenticatedContentContainer,
               {
-                paddingBottom: 120 + insets.bottom,
+                paddingBottom: TAB_BAR_CONTENT_INSET + insets.bottom,
               },
             ]}
             showsVerticalScrollIndicator={false}
@@ -313,41 +300,19 @@ const styles = StyleSheet.create({
   authenticatedContainer: {
     flex: 1,
   },
-  topBar: {
-    alignItems: 'center',
-    borderBottomColor: colors.divider,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingBottom: 14,
-    paddingHorizontal: 24,
-    paddingTop: 10,
-  },
-  topBarSide: {
-    minWidth: 72,
-  },
-  topBarTitle: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: -0.2,
-  },
-  topBarAction: {
-    minWidth: 72,
-  },
   authenticatedContentContainer: {
     gap: 28,
-    paddingHorizontal: 24,
-    paddingTop: 18,
+    paddingHorizontal: 26,
+    paddingTop: 22,
   },
   bottomTabBar: {
-    backgroundColor: colors.surfaceElevated,
-    borderTopColor: colors.border,
+    backgroundColor: colors.background,
+    borderTopColor: colors.divider,
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     left: 0,
-    paddingHorizontal: 10,
-    paddingTop: 10,
+    paddingHorizontal: 8,
+    paddingTop: 8,
     position: 'absolute',
     right: 0,
     bottom: 0,
@@ -355,13 +320,13 @@ const styles = StyleSheet.create({
   bottomTabButton: {
     alignItems: 'center',
     flex: 1,
-    gap: 6,
-    minHeight: 62,
+    gap: 5,
+    minHeight: 56,
     justifyContent: 'center',
   },
   bottomTabLabel: {
     color: colors.textMuted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
   },
   bottomTabLabelActive: {

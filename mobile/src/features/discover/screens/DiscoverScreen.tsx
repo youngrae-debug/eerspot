@@ -12,6 +12,7 @@ import {
 import { ApiError } from '../../../shared/api/http';
 import { useLanguage } from '../../../shared/i18n/LanguageContext';
 import { colors } from '../../../shared/theme/colors';
+import { journalTokens } from '../../../shared/theme/journalTokens';
 import { useAuth } from '../../auth/context/AuthContext';
 import { listPlaces, savePlace } from '../../places/api/placesApi';
 import type { SearchPlace } from '../../places/types';
@@ -98,7 +99,10 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
 
       return data.id;
     } catch (caughtError) {
-      if (caughtError instanceof ApiError && caughtError.code === 'PLACE_DUPLICATED') {
+      if (
+        caughtError instanceof ApiError &&
+        caughtError.code === 'PLACE_DUPLICATED'
+      ) {
         const existingPlaceId = extractExistingPlaceId(caughtError.details);
 
         if (existingPlaceId) {
@@ -128,7 +132,7 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
   };
 
   const handleAnalyzeLink = async () => {
-    const normalizedLink = linkInput.trim();
+    const normalizedLink = normalizeDiscoverLinkInput(linkInput);
 
     if (!normalizedLink) {
       setFeedback(t('discover_link_required'));
@@ -139,7 +143,10 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
     setFeedback(null);
 
     try {
-      const data = await discoverPlacesFromLink(authorizedRequest, normalizedLink);
+      const data = await discoverPlacesFromLink(
+        authorizedRequest,
+        normalizedLink,
+      );
       setLinkAnalysis(data);
     } catch (caughtError) {
       setLinkAnalysis(null);
@@ -168,18 +175,10 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
   return (
     <View style={styles.container}>
       <View style={styles.hero}>
-        <Text style={styles.eyebrow}>{t('discover_eyebrow')}</Text>
         <Text style={styles.title}>{t('discover_title')}</Text>
-        <Text style={styles.description}>{t('discover_description')}</Text>
       </View>
 
       <View style={styles.panel}>
-        <Text style={styles.panelEyebrow}>{t('discover_link_eyebrow')}</Text>
-        <Text style={styles.panelTitle}>{t('discover_link_title')}</Text>
-        <Text style={styles.panelDescription}>
-          {t('discover_link_description')}
-        </Text>
-
         <TextInput
           autoCapitalize="none"
           autoCorrect={false}
@@ -200,7 +199,8 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
             handleAnalyzeLink().catch(() => undefined);
           }}
           style={styles.primaryButton}
-          testID="discover-link-submit">
+          testID="discover-link-submit"
+        >
           {analyzingLink ? (
             <ActivityIndicator color={colors.surfaceElevated} size="small" />
           ) : (
@@ -257,7 +257,9 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
 
             {linkAnalysis.page.contentPreview ? (
               <View style={styles.metaBlock}>
-                <Text style={styles.metaLabel}>{t('discover_link_preview')}</Text>
+                <Text style={styles.metaLabel}>
+                  {t('discover_link_preview')}
+                </Text>
                 <Text style={styles.metaValue}>
                   {linkAnalysis.page.contentPreview}
                 </Text>
@@ -279,17 +281,9 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
 
                   return (
                     <View key={itemKey} style={styles.card}>
-                      <View style={styles.cardHeader}>
-                        <View style={styles.neighborhoodBadge}>
-                          <Text style={styles.neighborhoodBadgeLabel}>
-                            {item.locationHint ?? item.provider.toUpperCase()}
-                          </Text>
-                        </View>
-                        <Text style={styles.providerLabel}>
-                          {item.provider.toUpperCase()}
-                        </Text>
-                      </View>
-
+                      <Text style={styles.providerLabel}>
+                        {item.locationHint ?? item.provider.toUpperCase()}
+                      </Text>
                       <Text style={styles.cardTitle}>{item.name}</Text>
                       <Text style={styles.cardSummary}>{item.address}</Text>
 
@@ -297,7 +291,9 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
                         <Text style={styles.metaLabel}>
                           {t('discover_link_matched_query')}
                         </Text>
-                        <Text style={styles.metaValue}>{item.matchedQuery}</Text>
+                        <Text style={styles.metaValue}>
+                          {item.matchedQuery}
+                        </Text>
                       </View>
 
                       {item.locationHint ? (
@@ -305,7 +301,9 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
                           <Text style={styles.metaLabel}>
                             {t('discover_link_location_hint')}
                           </Text>
-                          <Text style={styles.metaValue}>{item.locationHint}</Text>
+                          <Text style={styles.metaValue}>
+                            {item.locationHint}
+                          </Text>
                         </View>
                       ) : null}
 
@@ -313,15 +311,16 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
                         <Pressable
                           disabled={isSaved || isSaving}
                           onPress={() => {
-                            handleSaveSearchPlace(item, { announce: true }).catch(
-                              () => undefined,
-                            );
+                            handleSaveSearchPlace(item, {
+                              announce: true,
+                            }).catch(() => undefined);
                           }}
                           style={[
                             styles.secondaryButton,
                             isSaved ? styles.secondaryButtonSaved : null,
                           ]}
-                          testID={`discover-link-save-${item.providerPlaceId}`}>
+                          testID={`discover-link-save-${item.providerPlaceId}`}
+                        >
                           {isSaving ? (
                             <ActivityIndicator
                               color={colors.textPrimary}
@@ -329,7 +328,9 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
                             />
                           ) : (
                             <Text style={styles.secondaryButtonLabel}>
-                              {isSaved ? t('discover_saved') : t('discover_save')}
+                              {isSaved
+                                ? t('discover_saved')
+                                : t('discover_save')}
                             </Text>
                           )}
                         </Pressable>
@@ -343,7 +344,8 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
                             styles.ghostButton,
                             !item.mapUrl ? styles.ghostButtonDisabled : null,
                           ]}
-                          testID={`discover-link-map-${item.providerPlaceId}`}>
+                          testID={`discover-link-map-${item.providerPlaceId}`}
+                        >
                           <Text style={styles.ghostButtonLabel}>
                             {t('discover_link_open_map')}
                           </Text>
@@ -372,17 +374,16 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
                     <View
                       key={candidateKey}
                       style={styles.card}
-                      testID={`discover-link-candidate-${slugify(candidatePlace.name)}`}>
-                      <View style={styles.cardHeader}>
-                        <View style={styles.neighborhoodBadge}>
-                          <Text style={styles.neighborhoodBadgeLabel}>
-                            {candidatePlace.locationHint ?? 'LINK'}
-                          </Text>
-                        </View>
-                        <Text style={styles.providerLabel}>LINK</Text>
-                      </View>
-
-                      <Text style={styles.cardTitle}>{candidatePlace.name}</Text>
+                      testID={`discover-link-candidate-${slugify(
+                        candidatePlace.name,
+                      )}`}
+                    >
+                      <Text style={styles.providerLabel}>
+                        {candidatePlace.locationHint ?? 'LINK'}
+                      </Text>
+                      <Text style={styles.cardTitle}>
+                        {candidatePlace.name}
+                      </Text>
                       <Text style={styles.cardSummary}>
                         {t('discover_link_candidate_hint')}
                       </Text>
@@ -421,7 +422,10 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
                             styles.secondaryButton,
                             isSaved ? styles.secondaryButtonSaved : null,
                           ]}
-                          testID={`discover-link-candidate-save-${slugify(candidatePlace.name)}`}>
+                          testID={`discover-link-candidate-save-${slugify(
+                            candidatePlace.name,
+                          )}`}
+                        >
                           {isSaving ? (
                             <ActivityIndicator
                               color={colors.textPrimary}
@@ -429,7 +433,9 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
                             />
                           ) : (
                             <Text style={styles.secondaryButtonLabel}>
-                              {isSaved ? t('discover_saved') : t('discover_save')}
+                              {isSaved
+                                ? t('discover_saved')
+                                : t('discover_save')}
                             </Text>
                           )}
                         </Pressable>
@@ -442,7 +448,9 @@ export function DiscoverScreen(_props: DiscoverScreenProps): React.JSX.Element {
           ) : null}
 
           {linkAnalysis.items.length === 0 && candidateNames.length === 0 ? (
-            <Text style={styles.emptyState}>{t('discover_link_no_results')}</Text>
+            <Text style={styles.emptyState}>
+              {t('discover_link_no_results')}
+            </Text>
           ) : null}
         </>
       ) : null}
@@ -456,14 +464,19 @@ function buildSearchPlaceKey(
   return `${place.provider}:${place.providerPlaceId}`;
 }
 
-function buildCandidateNames(linkAnalysis: LinkDiscoverResult | null): string[] {
+function buildCandidateNames(
+  linkAnalysis: LinkDiscoverResult | null,
+): string[] {
   if (!linkAnalysis) {
     return [];
   }
 
   const matchedNames = new Set(
     linkAnalysis.items.flatMap(item => {
-      return [normalizeComparableValue(item.name), normalizeComparableValue(item.matchedQuery)];
+      return [
+        normalizeComparableValue(item.name),
+        normalizeComparableValue(item.matchedQuery),
+      ];
     }),
   );
 
@@ -500,7 +513,10 @@ function buildCandidatePlaces(
       mapUrl: null,
       name: candidateName,
       provider: DISCOVER_CANDIDATE_PROVIDER,
-      providerPlaceId: buildCandidateProviderPlaceId(candidateName, locationHint),
+      providerPlaceId: buildCandidateProviderPlaceId(
+        candidateName,
+        locationHint,
+      ),
       sourceTitle: linkAnalysis.page.title,
     };
   });
@@ -511,7 +527,8 @@ function extractExistingPlaceId(details: unknown): string | null {
     return null;
   }
 
-  const existingPlaceId = (details as { existingPlaceId?: unknown }).existingPlaceId;
+  const existingPlaceId = (details as { existingPlaceId?: unknown })
+    .existingPlaceId;
 
   return typeof existingPlaceId === 'string' ? existingPlaceId : null;
 }
@@ -542,9 +559,14 @@ function buildCandidateProviderPlaceId(
 
 function buildCandidateAddress(linkAnalysis: LinkDiscoverResult): string {
   const locationLabel = linkAnalysis.page.locationHints.join(' · ');
-  const titleLabel = truncate(linkAnalysis.page.title ?? extractHostname(linkAnalysis.page.url), 56);
+  const titleLabel = truncate(
+    linkAnalysis.page.title ?? extractHostname(linkAnalysis.page.url),
+    56,
+  );
 
-  return [locationLabel, titleLabel].filter(Boolean).join(' · ') || 'Link discovery';
+  return (
+    [locationLabel, titleLabel].filter(Boolean).join(' · ') || 'Link discovery'
+  );
 }
 
 function normalizeComparableValue(value: string): string {
@@ -567,73 +589,73 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 3)}...`;
 }
 
+function normalizeDiscoverLinkInput(value: string): string {
+  const trimmedValue = value.trim();
+
+  if (!trimmedValue) {
+    return '';
+  }
+
+  const withoutLeadingSlash = trimmedValue.replace(/^\/+/, '');
+
+  if (/^https?:\/\//i.test(withoutLeadingSlash)) {
+    return withoutLeadingSlash;
+  }
+
+  return `https://${withoutLeadingSlash}`;
+}
+
 const DISCOVER_CANDIDATE_PROVIDER: SearchPlace['provider'] = 'kakao';
 
 const styles = StyleSheet.create({
   container: {
     gap: 18,
+    paddingTop: 4,
   },
   hero: {
-    gap: 12,
-  },
-  eyebrow: {
-    color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: '600',
-    letterSpacing: 1.8,
-    textTransform: 'uppercase',
+    gap: 0,
   },
   title: {
-    color: colors.textPrimary,
-    fontSize: 34,
-    fontWeight: '700',
-    letterSpacing: -0.9,
-  },
-  description: {
-    color: colors.textSecondary,
-    fontSize: 16,
-    lineHeight: 24,
+    color: journalTokens.color.textStrong,
+    fontSize: 24,
+    fontWeight: '600',
+    letterSpacing: -0.5,
+    lineHeight: 30,
   },
   panel: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.border,
-    borderRadius: 30,
-    borderWidth: 1,
-    gap: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 20,
+    borderTopColor: journalTokens.color.rule,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 12,
+    paddingTop: 18,
   },
   analysisCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 28,
-    borderWidth: 1,
+    borderTopColor: journalTokens.color.rule,
+    borderTopWidth: StyleSheet.hairlineWidth,
     gap: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
+    paddingTop: 18,
   },
   panelEyebrow: {
-    color: colors.textMuted,
-    fontSize: 12,
+    color: journalTokens.color.textMuted,
+    fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 1.2,
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
   panelTitle: {
-    color: colors.textPrimary,
-    fontSize: 20,
-    fontWeight: '700',
+    color: journalTokens.color.textStrong,
+    fontSize: 17,
+    fontWeight: '600',
     letterSpacing: -0.3,
   },
   panelDescription: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
+    color: journalTokens.color.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
   },
   feedback: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
+    color: journalTokens.color.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
   },
   loadingBlock: {
     alignItems: 'center',
@@ -641,102 +663,84 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   input: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    color: colors.textPrimary,
+    backgroundColor: 'transparent',
+    borderBottomColor: journalTokens.color.rule,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    color: journalTokens.color.textPrimary,
     fontSize: 15,
-    minHeight: 52,
-    paddingHorizontal: 14,
+    minHeight: 46,
+    paddingHorizontal: 0,
   },
   primaryButton: {
     alignItems: 'center',
-    backgroundColor: colors.accent,
-    borderRadius: 16,
+    backgroundColor: journalTokens.color.accent,
+    borderRadius: journalTokens.radius.soft,
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: 44,
     paddingHorizontal: 16,
   },
   primaryButtonLabel: {
-    color: colors.surfaceElevated,
-    fontSize: 14,
-    fontWeight: '700',
+    color: journalTokens.color.inverseText,
+    fontSize: 13,
+    fontWeight: '600',
   },
   section: {
     gap: 14,
   },
   sectionTitle: {
-    color: colors.textPrimary,
-    fontSize: 18,
-    fontWeight: '700',
+    color: journalTokens.color.textStrong,
+    fontSize: 15,
+    fontWeight: '600',
     letterSpacing: -0.2,
   },
   emptyState: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
+    color: journalTokens.color.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
   },
   cardList: {
-    gap: 16,
+    borderTopColor: journalTokens.color.rule,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 0,
   },
   card: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.border,
-    borderRadius: 28,
-    borderWidth: 1,
-    gap: 14,
-    paddingHorizontal: 18,
-    paddingVertical: 18,
-  },
-  cardHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  neighborhoodBadge: {
-    backgroundColor: colors.surface,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  neighborhoodBadgeLabel: {
-    color: colors.textPrimary,
-    fontSize: 13,
-    fontWeight: '600',
+    borderBottomColor: journalTokens.color.rule,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+    paddingVertical: 16,
   },
   providerLabel: {
-    color: colors.textMuted,
-    flexShrink: 1,
-    fontSize: 13,
-    marginLeft: 12,
-    textAlign: 'right',
+    color: journalTokens.color.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   cardTitle: {
-    color: colors.textPrimary,
-    fontSize: 24,
-    fontWeight: '700',
+    color: journalTokens.color.textPrimary,
+    fontSize: 18,
+    fontWeight: '600',
     letterSpacing: -0.4,
   },
   cardSummary: {
-    color: colors.textSecondary,
-    fontSize: 15,
-    lineHeight: 22,
+    color: journalTokens.color.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
   },
   metaBlock: {
     gap: 4,
   },
   metaLabel: {
-    color: colors.textMuted,
-    fontSize: 12,
+    color: journalTokens.color.textMuted,
+    fontSize: 11,
     fontWeight: '600',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
   metaValue: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    lineHeight: 22,
+    color: journalTokens.color.textPrimary,
+    fontSize: 13,
+    lineHeight: 18,
   },
   actionRow: {
     flexDirection: 'row',
@@ -744,40 +748,40 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.borderStrong,
-    borderRadius: 16,
+    backgroundColor: journalTokens.color.pageSurface,
+    borderColor: journalTokens.color.ruleStrong,
+    borderRadius: journalTokens.radius.soft,
     borderWidth: 1,
     flex: 1,
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: 42,
     paddingHorizontal: 16,
   },
   secondaryButtonSaved: {
-    backgroundColor: colors.divider,
+    backgroundColor: journalTokens.color.accentSoft,
   },
   secondaryButtonLabel: {
-    color: colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '700',
+    color: journalTokens.color.textPrimary,
+    fontSize: 13,
+    fontWeight: '600',
   },
   ghostButton: {
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.borderStrong,
-    borderRadius: 16,
+    backgroundColor: journalTokens.color.pageSurface,
+    borderColor: journalTokens.color.ruleStrong,
+    borderRadius: journalTokens.radius.soft,
     borderWidth: 1,
     flex: 1,
     justifyContent: 'center',
-    minHeight: 48,
+    minHeight: 42,
     paddingHorizontal: 16,
   },
   ghostButtonDisabled: {
     opacity: 0.4,
   },
   ghostButtonLabel: {
-    color: colors.accent,
-    fontSize: 14,
-    fontWeight: '700',
+    color: journalTokens.color.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

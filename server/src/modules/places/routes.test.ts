@@ -604,6 +604,71 @@ test('places discovery prefers explicit instagram place markers in reel captions
   await app.close();
 });
 
+test('places discovery prefers instagram place markers over narrative fragments', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    placeSearchClient: {
+      search: async () => [],
+    },
+    pageFetchImpl: async () =>
+      new Response(
+        `
+          <html>
+            <head>
+              <meta
+                property="og:title"
+                content="전주맛집 on Instagram: &quot;🍴전주 남부시장 필먹코스 푼다.🍴 @@자기야 시장 맛집 도장깨기 가자(*ˊᵕˋ*)੭❤ 전주 토박이 Pick!📝 📍메르미진미집 : 시원한 메밀소바 제대로 말아주는 곳 📍홍화연 : 자극적인 물짜장과 다르게 재료가 다 느껴지는 맛 📍마라크림새우 : 바삭함과 탱글함이 입에서 탱고추는 맛&quot;"
+              />
+              <meta
+                name="description"
+                content="556 likes, 12 comments - all.about.jeonju on March 18, 2026: &quot;🍴전주 남부시장 필먹코스 푼다.🍴 @@자기야 시장 맛집 도장깨기 가자(*ˊᵕˋ*)੭❤ 전주 토박이 Pick!📝 📍메르미진미집 : 시원한 메밀소바 제대로 말아주는 곳 📍홍화연 : 자극적인 물짜장과 다르게 재료가 다 느껴지는 맛 📍마라크림새우 : 바삭함과 탱글함이 입에서 탱고추는 맛&quot;."
+              />
+            </head>
+            <body>
+              Instagram Instagram Log In Sign Up Meta About Blog Jobs Help API Privacy Terms
+            </body>
+          </html>
+        `,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+          status: 200,
+        },
+      ),
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/discover-link',
+    headers,
+    payload: {
+      url: 'https://www.instagram.com/p/DWBK956jR0X/?img_index=4',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.page.locationHints[0], '전주');
+  assert.deepEqual(response.json().data.queryHints, [
+    '메르미진미집',
+    '홍화연',
+    '마라크림새우',
+  ]);
+  assert.equal(response.json().data.queryHints.includes('도장깨기'), false);
+  assert.equal(response.json().data.queryHints.includes('제대로'), false);
+
+  await app.close();
+});
+
 test('places discovery extracts instagram narrative reel captions ending with 입니다', async () => {
   const app = buildApp({
     env: {

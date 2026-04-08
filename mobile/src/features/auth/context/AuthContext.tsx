@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
 import { ApiError, request, type RequestOptions } from '../../../shared/api/http';
+import { env } from '../../../shared/config/env';
 import {
   login,
   logout as logoutRequest,
@@ -33,6 +34,19 @@ type Props = {
   children: React.ReactNode;
 };
 
+const SESSION_RESTORE_TIMEOUT_MS = 4000;
+
+function createBypassSession(email = 'dev@eerspot.local'): AuthSession {
+  return {
+    accessToken: 'dev-bypass-access-token',
+    refreshToken: 'dev-bypass-refresh-token',
+    user: {
+      email,
+      id: 'dev-user',
+    },
+  };
+}
+
 export function AuthProvider({ children }: Props): React.JSX.Element {
   const [status, setStatus] = useState<AuthStatus>('booting');
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -42,8 +56,28 @@ export function AuthProvider({ children }: Props): React.JSX.Element {
   useEffect(() => {
     let isMounted = true;
 
+    const clearStoredSessionSafely = async () => {
+      try {
+        await clearStoredSession();
+      } catch {
+        // Best-effort cleanup. Boot flow must continue even if keychain fails.
+      }
+    };
+
     const restoreSession = async () => {
-      const storedSession = await loadStoredSession();
+      if (env.authBypassEnabled) {
+        if (isMounted) {
+          setSession(createBypassSession());
+          setStatus('authenticated');
+          setError(null);
+        }
+        return;
+      }
+
+      const storedSession = await withTimeout(
+        loadStoredSession(),
+        SESSION_RESTORE_TIMEOUT_MS,
+      );
 
       if (!storedSession) {
         if (isMounted) {
@@ -53,7 +87,10 @@ export function AuthProvider({ children }: Props): React.JSX.Element {
       }
 
       try {
-        const refreshedTokens = await refreshRequest(storedSession.refreshToken);
+        const refreshedTokens = await withTimeout(
+          refreshRequest(storedSession.refreshToken),
+          SESSION_RESTORE_TIMEOUT_MS,
+        );
 
         if (!isMounted) {
           return;
@@ -74,7 +111,7 @@ export function AuthProvider({ children }: Props): React.JSX.Element {
           user: nextSession.user,
         });
       } catch {
-        await clearStoredSession();
+        await clearStoredSessionSafely();
 
         if (isMounted) {
           setSession(null);
@@ -85,7 +122,7 @@ export function AuthProvider({ children }: Props): React.JSX.Element {
     };
 
     restoreSession().catch(async () => {
-      await clearStoredSession();
+      await clearStoredSessionSafely();
 
       if (isMounted) {
         setSession(null);
@@ -132,6 +169,11 @@ export function AuthProvider({ children }: Props): React.JSX.Element {
     setError(null);
 
     try {
+      if (env.authBypassEnabled) {
+        await commitSession(createBypassSession(email));
+        return;
+      }
+
       const nextSession = await authenticateWithAutoProvision(email, password);
       await commitSession(nextSession);
     } catch (caughtError) {
@@ -149,6 +191,11 @@ export function AuthProvider({ children }: Props): React.JSX.Element {
     setError(null);
 
     try {
+      if (env.authBypassEnabled) {
+        await commitSession(createBypassSession(email));
+        return;
+      }
+
       const nextSession = await authenticateWithAutoProvision(email, password);
       await commitSession(nextSession);
     } catch (caughtError) {
@@ -254,4 +301,22 @@ function extractMessage(error: unknown): string {
   }
 
   return 'unexpected error';
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('operation timeout'));
+    }, timeoutMs);
+
+    promise
+      .then(value => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(error => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
 }

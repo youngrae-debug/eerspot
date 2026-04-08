@@ -10,6 +10,7 @@ import {
 
 import { useLanguage } from '../../../shared/i18n/LanguageContext';
 import { colors } from '../../../shared/theme/colors';
+import { journalTokens } from '../../../shared/theme/journalTokens';
 import { useAuth } from '../context/AuthContext';
 
 export function AuthScreen(): React.JSX.Element {
@@ -20,46 +21,48 @@ export function AuthScreen(): React.JSX.Element {
 
   return (
     <View style={styles.screen}>
-      <View style={styles.card}>
-        <Text style={styles.brand}>{t('auth_brand')}</Text>
+      <Text style={styles.brand}>{t('auth_brand')}</Text>
 
-        <View style={styles.form}>
-          <Field
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            label={t('auth_email')}
-            onChangeText={setEmail}
-            placeholder={t('auth_email_placeholder')}
-            value={email}
-          />
+      <View style={styles.form}>
+        <Field
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="email-address"
+          label={t('auth_email')}
+          onChangeText={setEmail}
+          placeholder={t('auth_email_placeholder')}
+          value={email}
+        />
 
-          <Field
-            autoCapitalize="none"
-            autoCorrect={false}
-            label={t('auth_password')}
-            onChangeText={setPassword}
-            placeholder={t('auth_password_placeholder_login')}
-            secureTextEntry
-            value={password}
-          />
-        </View>
-
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        <Pressable
-          disabled={isSubmitting}
-          onPress={() => {
-            signIn(email, password).catch(() => undefined);
-          }}
-          style={[styles.submitButton, isSubmitting ? styles.buttonDisabled : null]}>
-          {isSubmitting ? (
-            <ActivityIndicator color={colors.surfaceElevated} />
-          ) : (
-            <Text style={styles.submitLabel}>{t('auth_login')}</Text>
-          )}
-        </Pressable>
+        <Field
+          autoCapitalize="none"
+          autoCorrect={false}
+          label={t('auth_password')}
+          onChangeText={setPassword}
+          placeholder={t('auth_password_placeholder_login')}
+          secureTextEntry
+          value={password}
+        />
       </View>
+
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+      <Pressable
+        disabled={isSubmitting}
+        onPress={() => {
+          signIn(email, password).catch(() => undefined);
+        }}
+        style={[
+          styles.submitButton,
+          isSubmitting ? styles.buttonDisabled : null,
+        ]}
+      >
+        {isSubmitting ? (
+          <ActivityIndicator color={journalTokens.color.inverseText} />
+        ) : (
+          <Text style={styles.submitLabel}>{t('auth_login')}</Text>
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -105,65 +108,54 @@ function Field({
 
 const styles = StyleSheet.create({
   screen: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingTop: 56,
-  },
-  card: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.border,
-    borderRadius: 32,
-    borderWidth: 1,
-    gap: 24,
-    paddingHorizontal: 22,
-    paddingVertical: 28,
+    gap: 28,
   },
   brand: {
-    color: colors.textPrimary,
-    fontSize: 26,
-    fontWeight: '800',
-    letterSpacing: -0.7,
-    textAlign: 'center',
+    color: journalTokens.color.textStrong,
+    fontSize: 24,
+    fontWeight: '600',
+    letterSpacing: -0.5,
   },
   form: {
-    gap: 20,
+    gap: 18,
   },
   field: {
-    gap: 10,
+    gap: 8,
   },
   label: {
-    color: colors.textPrimary,
-    fontSize: 14,
-    fontWeight: '700',
+    color: journalTokens.color.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   input: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.border,
-    borderRadius: 20,
-    borderWidth: 1,
-    color: colors.textPrimary,
+    backgroundColor: 'transparent',
+    borderBottomColor: journalTokens.color.rule,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    color: journalTokens.color.textPrimary,
     fontSize: 15,
-    minHeight: 58,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    minHeight: 48,
+    paddingHorizontal: 0,
+    paddingVertical: 10,
   },
   errorText: {
     color: colors.danger,
-    fontSize: 14,
-    lineHeight: 21,
+    fontSize: 13,
+    lineHeight: 18,
   },
   submitButton: {
     alignItems: 'center',
-    backgroundColor: colors.textPrimary,
-    borderRadius: 14,
+    backgroundColor: journalTokens.color.accent,
+    borderRadius: journalTokens.radius.soft,
     justifyContent: 'center',
-    minHeight: 58,
+    minHeight: 46,
     paddingHorizontal: 18,
   },
   submitLabel: {
-    color: colors.surfaceElevated,
-    fontSize: 16,
-    fontWeight: '800',
+    color: journalTokens.color.inverseText,
+    fontSize: 14,
+    fontWeight: '600',
   },
   buttonDisabled: {
     opacity: 0.55,

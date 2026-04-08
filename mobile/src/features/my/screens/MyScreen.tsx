@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useLanguage } from '../../../shared/i18n/LanguageContext';
 import { colors } from '../../../shared/theme/colors';
+import { journalTokens } from '../../../shared/theme/journalTokens';
 
 type MyScreenProps = {
   email: string;
@@ -17,28 +18,21 @@ export function MyScreen({
 
   return (
     <View style={styles.container}>
-      <View style={styles.panel}>
-        <View style={styles.profileRow}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarMark}>e</Text>
-          </View>
-
-          <View style={styles.profileCopy}>
-            <View style={styles.profileHeaderRow}>
-              <Text style={styles.brand}>eerspot</Text>
-              <Pressable
-                onPress={() => {
-                  onSignOut().catch(() => undefined);
-                }}>
-                <Text style={styles.signOutLabel}>{t('my_sign_out')}</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.email}>{email}</Text>
-          </View>
+      <View style={styles.profileSection}>
+        <View style={styles.profileHeaderRow}>
+          <Text style={styles.brand}>eerspot</Text>
+          <Pressable
+            onPress={() => {
+              onSignOut().catch(() => undefined);
+            }}
+          >
+            <Text style={styles.signOutLabel}>{t('my_sign_out')}</Text>
+          </Pressable>
         </View>
+        <Text style={styles.email}>{email}</Text>
       </View>
 
-      <View style={styles.panel}>
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t('my_language_title')}</Text>
         <View style={styles.languageRow}>
           <LanguageButton
@@ -57,9 +51,13 @@ export function MyScreen({
             onPress={() => setLanguage('ja')}
           />
         </View>
-        <View style={styles.divider} />
+      </View>
+
+      <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t('my_backup_title')}</Text>
-        <Text style={styles.sectionDescription}>{t('my_sync_status_value')}</Text>
+        <Text style={styles.sectionDescription}>
+          {t('my_sync_status_value')}
+        </Text>
       </View>
     </View>
   );
@@ -79,12 +77,17 @@ function LanguageButton({
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.languageButton, active ? styles.languageButtonActive : null]}>
+      style={[
+        styles.languageButton,
+        active ? styles.languageButtonActive : null,
+      ]}
+    >
       <Text
         style={[
           styles.languageButtonLabel,
           active ? styles.languageButtonLabelActive : null,
-        ]}>
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -93,103 +96,76 @@ function LanguageButton({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 20,
+    gap: 28,
   },
-  panel: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.border,
-    borderRadius: 30,
-    borderWidth: 1,
-    gap: 18,
-    paddingHorizontal: 18,
-    paddingVertical: 20,
-  },
-  profileRow: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  avatar: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.divider,
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 88,
-    justifyContent: 'center',
-    width: 88,
-  },
-  avatarMark: {
-    color: colors.textMuted,
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  profileCopy: {
-    flex: 1,
-    gap: 4,
-    justifyContent: 'center',
+  profileSection: {
+    gap: 6,
   },
   profileHeaderRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 12,
+    justifyContent: 'space-between',
   },
   brand: {
-    color: colors.textPrimary,
-    fontSize: 25,
-    fontWeight: '800',
-    letterSpacing: -0.7,
+    color: journalTokens.color.textStrong,
+    fontSize: 24,
+    fontWeight: '600',
+    letterSpacing: -0.5,
   },
   signOutLabel: {
     color: colors.danger,
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
   },
   email: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 21,
+    color: journalTokens.color.textSecondary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  section: {
+    borderTopColor: journalTokens.color.rule,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 14,
+    paddingTop: 18,
   },
   sectionTitle: {
-    color: colors.textPrimary,
-    fontSize: 19,
-    fontWeight: '700',
-    letterSpacing: -0.3,
-    lineHeight: 24,
+    color: journalTokens.color.textStrong,
+    fontSize: 15,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   sectionDescription: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 21,
+    color: journalTokens.color.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
   },
   languageRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
-  },
-  divider: {
-    backgroundColor: colors.divider,
-    height: 1,
   },
   languageButton: {
     alignItems: 'center',
-    borderColor: colors.border,
-    borderRadius: 12,
-    borderWidth: 1,
-    flex: 1,
+    backgroundColor: journalTokens.color.pageSurface,
+    borderColor: journalTokens.color.ruleStrong,
+    borderRadius: journalTokens.radius.round,
+    borderWidth: StyleSheet.hairlineWidth,
     justifyContent: 'center',
-    minHeight: 72,
-    paddingHorizontal: 10,
+    minHeight: 38,
+    minWidth: 84,
+    paddingHorizontal: 14,
   },
   languageButtonActive: {
-    backgroundColor: colors.textPrimary,
-    borderColor: colors.textPrimary,
+    backgroundColor: journalTokens.color.accentSoft,
+    borderColor: journalTokens.color.accent,
   },
   languageButtonLabel: {
-    color: colors.textPrimary,
-    fontSize: 15,
-    fontWeight: '800',
+    color: journalTokens.color.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
   },
   languageButtonLabelActive: {
-    color: colors.surfaceElevated,
+    color: journalTokens.color.textStrong,
   },
 });

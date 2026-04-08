@@ -43,9 +43,7 @@ function extractTextContent(children: React.ReactNode): string {
   return '';
 }
 
-function getAllTexts(
-  root: ReactTestRenderer.ReactTestInstance,
-): string[] {
+function getAllTexts(root: ReactTestRenderer.ReactTestInstance): string[] {
   return root.findAllByType(Text).map(textNode => {
     return extractTextContent(textNode.props.children);
   });
@@ -94,9 +92,10 @@ test('keeps the search screen quiet on first render', async () => {
 
   expect(instance.root.findByType(TextInput).props.value).toBe('');
   expect(getAllTexts(instance.root)).toContain('Search');
-  expect(getAllTexts(instance.root)).toContain('Search places by keyword.');
   expect(getAllTexts(instance.root)).toContain('Provider results 0');
-  expect(getAllTexts(instance.root).filter(text => text === 'Cafe Alpha')).toHaveLength(1);
+  expect(
+    getAllTexts(instance.root).filter(text => text === 'Cafe Alpha'),
+  ).toHaveLength(1);
 });
 
 test('updates and deletes a saved place from the detail panel', async () => {
@@ -163,7 +162,9 @@ test('updates and deletes a saved place from the detail panel', async () => {
   });
 
   await ReactTestRenderer.act(async () => {
-    instance.root.findByProps({ testID: 'saved-place-row-plc_1' }).props.onPress();
+    instance.root
+      .findByProps({ testID: 'saved-place-row-plc_1' })
+      .props.onPress();
   });
 
   await ReactTestRenderer.act(async () => {
@@ -171,7 +172,9 @@ test('updates and deletes a saved place from the detail panel', async () => {
   });
 
   await ReactTestRenderer.act(async () => {
-    instance.root.findByProps({ testID: 'place-detail-favorite-button' }).props.onPress();
+    instance.root
+      .findByProps({ testID: 'place-detail-favorite-button' })
+      .props.onPress();
   });
 
   await ReactTestRenderer.act(async () => {
@@ -181,17 +184,28 @@ test('updates and deletes a saved place from the detail panel', async () => {
   });
 
   await ReactTestRenderer.act(async () => {
-    instance.root.findByProps({ testID: 'place-detail-save-button' }).props.onPress();
+    instance.root
+      .findByProps({ testID: 'place-detail-save-button' })
+      .props.onPress();
   });
 
-  expect(placesApi.updatePlace).toHaveBeenCalledWith(expect.any(Function), 'plc_1', {
-    note: 'Window seat',
-    isFavorite: true,
-  });
+  expect(placesApi.updatePlace).toHaveBeenCalledWith(
+    expect.any(Function),
+    'plc_1',
+    {
+      note: 'Window seat',
+      isFavorite: true,
+    },
+  );
 
   await ReactTestRenderer.act(async () => {
-    instance.root.findByProps({ testID: 'place-detail-delete-button' }).props.onPress();
+    instance.root
+      .findByProps({ testID: 'place-detail-delete-button' })
+      .props.onPress();
   });
 
-  expect(placesApi.deletePlace).toHaveBeenCalledWith(expect.any(Function), 'plc_1');
+  expect(placesApi.deletePlace).toHaveBeenCalledWith(
+    expect.any(Function),
+    'plc_1',
+  );
 });

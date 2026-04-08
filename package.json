@@ -7,6 +7,8 @@
     "server"
   ],
   "scripts": {
+    "ios": "npm run ios --workspace mobile",
+    "android": "npm run android --workspace mobile",
     "lint": "npm run lint --workspace mobile",
     "typecheck": "npm run typecheck --workspace mobile && npm run typecheck --workspace server",
     "mobile:android": "npm run android --workspace mobile",

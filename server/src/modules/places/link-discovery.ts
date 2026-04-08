@@ -44,6 +44,7 @@ const LOCATION_HINTS: LocationHint[] = [
   { label: '을지로', patterns: ['을지로', 'euljiro'] },
   { label: '연남', patterns: ['연남', 'yeonnam'] },
   { label: '한남', patterns: ['한남', 'hannam'] },
+  { label: '전주', patterns: ['전주', 'jeonju'] },
   { label: '부산', patterns: ['부산', 'busan'] },
   { label: '서울', patterns: ['서울', 'seoul'] },
   { label: '서울숲', patterns: ['서울숲', 'seoul forest'] },
@@ -336,6 +337,14 @@ function buildQueryHints(
   explicitQueryHints: string[],
 ): string[] {
   const titleBase = compactTitleQuery(cleanTitle(pageSummary.title));
+  const locationScopedExplicitQueries = explicitQueryHints.flatMap(explicitHint => {
+    return [
+      explicitHint,
+      ...pageSummary.locationHints.slice(0, 2).map(locationHint => {
+        return `${locationHint} ${explicitHint}`;
+      }),
+    ];
+  });
   const categoryHints = inferCategoryHints(
     [titleBase, pageSummary.description, pageSummary.contentPreview]
       .filter(Boolean)
@@ -350,7 +359,7 @@ function buildQueryHints(
     ];
   });
   const nextQueries = uniqueCompact([
-    ...explicitQueryHints,
+    ...locationScopedExplicitQueries,
     ...imageQueries,
     titleBase,
     ...pageSummary.locationHints.flatMap(locationHint => {
@@ -366,10 +375,23 @@ function buildQueryHints(
 }
 
 function extractExplicitQueryHints(pageSummary: PageSummary): string[] {
-  const rankedHints = uniqueExplicitHints([
+  const markerHints = uniqueExplicitHints([
     ...extractInstagramMarkerHints(pageSummary.title, 120),
     ...extractInstagramMarkerHints(pageSummary.description, 90),
     ...extractInstagramMarkerHints(pageSummary.contentPreview, 60),
+    ...extractInstagramPlaceMarkerHints(pageSummary.title, 125),
+    ...extractInstagramPlaceMarkerHints(pageSummary.description, 100),
+    ...extractInstagramPlaceMarkerHints(pageSummary.contentPreview, 80),
+  ]);
+
+  if (markerHints.length > 0) {
+    return markerHints
+      .sort((left, right) => right.score - left.score)
+      .map(hint => hint.value)
+      .slice(0, 8);
+  }
+
+  const rankedHints = uniqueExplicitHints([
     ...extractInstagramNarrativeHints(pageSummary.title, 110),
     ...extractInstagramNarrativeHints(pageSummary.description, 85),
     ...extractInstagramNarrativeHints(pageSummary.contentPreview, 55),
@@ -655,6 +677,28 @@ function extractInstagramMarkerHints(
   return hints;
 }
 
+function extractInstagramPlaceMarkerHints(
+  value: string | null,
+  score: number,
+): ExplicitQueryHint[] {
+  if (!value) {
+    return [];
+  }
+
+  const normalizedValue = normalizeWhitespace(value);
+
+  return [...normalizedValue.matchAll(/📍\s*([^📍📌🕐⌨❌@#\[\]:]{2,40})/gu)]
+    .map(match => normalizeExplicitHint(match[1] ?? ''))
+    .filter(Boolean)
+    .filter(isLikelyExplicitPlaceHint)
+    .map(hint => {
+      return {
+        score,
+        value: hint,
+      };
+    });
+}
+
 function extractInstagramNarrativeHints(
   value: string | null,
   score: number,
@@ -669,7 +713,7 @@ function extractInstagramNarrativeHints(
     /([가-힣A-Za-z0-9&]{2,20})\s+입니다(?:\s|$)/gu,
   ];
   const descriptorPatterns = [
-    /(?:맛집|카페|식당|고깃집|술집|막창집|베이커리|바)\s+([가-힣A-Za-z0-9&]{2,20})(?:\s|$)/gu,
+    /(?:^|[\s([{"'“‘])(?:맛집|카페|식당|고깃집|술집|막창집|베이커리|바)\s+([가-힣A-Za-z0-9&]{2,20})(?=\s|$)/gu,
   ];
 
   return uniqueExplicitHints([
@@ -746,7 +790,9 @@ function isLikelyNarrativePlaceHint(value: string): boolean {
   if (
     [
       '곳',
+      '도장깨기',
       '집',
+      '제대로',
       '처음',
       '공간',
       '구성이',

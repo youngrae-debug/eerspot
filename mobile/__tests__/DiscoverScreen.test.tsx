@@ -24,7 +24,9 @@ const placesApi = jest.requireMock('../src/features/places/api/placesApi') as {
   listPlaces: jest.Mock;
   savePlace: jest.Mock;
 };
-const discoverApi = jest.requireMock('../src/features/discover/api/discoverApi') as {
+const discoverApi = jest.requireMock(
+  '../src/features/discover/api/discoverApi',
+) as {
   discoverPlacesFromLink: jest.Mock;
 };
 
@@ -44,9 +46,7 @@ function extractTextContent(children: React.ReactNode): string {
   return '';
 }
 
-function getAllTexts(
-  root: ReactTestRenderer.ReactTestInstance,
-): string[] {
+function getAllTexts(root: ReactTestRenderer.ReactTestInstance): string[] {
   return root.findAllByType(Text).map(textNode => {
     return extractTextContent(textNode.props.children);
   });
@@ -84,7 +84,7 @@ test('renders a link-only discover screen without the starter board', async () =
   const texts = getAllTexts(instance.root);
 
   expect(texts).toContain('Read a link and surface venue names');
-  expect(texts).toContain('Drop a link and pull place clues from it');
+  expect(texts).toContain('Analyze link');
   expect(texts).not.toContain('Starter board');
   expect(texts).not.toContain('Save first, sort the route later');
 });
@@ -114,8 +114,10 @@ test('analyzes a link and renders related place suggestions', async () => {
       },
     ],
     page: {
-      contentPreview: '성수에서 전시와 카페를 함께 둘러보기 좋은 하루 코스를 소개합니다.',
-      description: '서울 성수에서 전시와 카페를 함께 둘러보기 좋은 하루 코스를 소개합니다.',
+      contentPreview:
+        '성수에서 전시와 카페를 함께 둘러보기 좋은 하루 코스를 소개합니다.',
+      description:
+        '서울 성수에서 전시와 카페를 함께 둘러보기 좋은 하루 코스를 소개합니다.',
       locationHints: ['성수'],
       title: '성수 카페 투어 가이드',
       url: 'https://example.com/seongsu-guide',
