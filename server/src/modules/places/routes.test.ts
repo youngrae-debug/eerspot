@@ -45,11 +45,16 @@ test('places flow supports search, save, list, detail, and duplicate protection'
       search: async () => [
         {
           address: '서울 성동구 연무장길 39-25',
+          categoryGroupName: '음식점',
+          categoryName: '음식점 > 한식 > 국밥',
           lat: 37.544958,
           lng: 127.055154,
+          mapUrl: 'https://place.map.kakao.com/123456789',
           name: '성수 미도인',
+          phone: '02-1234-5678',
           provider: 'kakao',
           providerPlaceId: '123456789',
+          roadAddress: '서울 성동구 연무장길 39-25',
         },
       ],
     },
@@ -71,8 +76,13 @@ test('places flow supports search, save, list, detail, and duplicate protection'
     providerPlaceId: string;
     name: string;
     address: string;
+    roadAddress?: string | null;
+    categoryName?: string | null;
+    categoryGroupName?: string | null;
+    phone?: string | null;
     lat: number;
     lng: number;
+    mapUrl?: string | null;
   };
 
   const saveResponse = await app.inject({
@@ -116,6 +126,11 @@ test('places flow supports search, save, list, detail, and duplicate protection'
   assert.equal(detailResponse.json().data.name, target.name);
   assert.equal(detailResponse.json().data.note, null);
   assert.equal(detailResponse.json().data.isFavorite, false);
+  assert.equal(detailResponse.json().data.categoryName, target.categoryName);
+  assert.equal(detailResponse.json().data.categoryGroupName, target.categoryGroupName);
+  assert.equal(detailResponse.json().data.phone, target.phone);
+  assert.equal(detailResponse.json().data.roadAddress, target.roadAddress);
+  assert.equal(detailResponse.json().data.mapUrl, target.mapUrl);
 
   const updateResponse = await app.inject({
     method: 'PATCH',
@@ -147,6 +162,232 @@ test('places flow supports search, save, list, detail, and duplicate protection'
 
   assert.equal(listAfterDeleteResponse.statusCode, 200);
   assert.equal(listAfterDeleteResponse.json().data.items.length, 0);
+
+  await app.close();
+});
+
+test('places save accepts nullable metadata from provider search results', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const saveResponse = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places',
+    headers,
+    payload: {
+      provider: 'kakao',
+      providerPlaceId: 'nullable-meta-place',
+      name: '은성농원 을지로본점',
+      address: '서울 중구 충무로 50-1',
+      roadAddress: '서울 중구 충무로 50-1',
+      categoryName: '음식점 > 한식 > 육류,고기',
+      categoryGroupName: '음식점',
+      phone: null,
+      lat: 37.5657086860902,
+      lng: 126.992931354382,
+      mapUrl: 'http://place.map.kakao.com/711010192',
+    },
+  });
+
+  assert.equal(saveResponse.statusCode, 201);
+  assert.ok(saveResponse.json().data.id);
+
+  await app.close();
+});
+
+test('places collections support create, add place, remove place, and delete collection', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const saveResponse = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places',
+    headers,
+    payload: {
+      provider: 'kakao',
+      providerPlaceId: 'collection-place-1',
+      name: '은성농원 을지로본점',
+      address: '서울 중구 충무로 50-1',
+      roadAddress: '서울 중구 충무로 50-1',
+      categoryName: '음식점 > 한식 > 육류,고기',
+      categoryGroupName: '음식점',
+      phone: '02-2275-0405',
+      lat: 37.5657086860902,
+      lng: 126.992931354382,
+      mapUrl: 'http://place.map.kakao.com/711010192',
+    },
+  });
+
+  assert.equal(saveResponse.statusCode, 201);
+  const placeId = saveResponse.json().data.id as string;
+
+  const createCollectionResponse = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/collections',
+    headers,
+    payload: {
+      name: '을지로 모임',
+    },
+  });
+
+  assert.equal(createCollectionResponse.statusCode, 201);
+  const collectionId = createCollectionResponse.json().data.id as string;
+  assert.equal(createCollectionResponse.json().data.name, '을지로 모임');
+  assert.deepEqual(createCollectionResponse.json().data.placeIds, []);
+
+  const addPlaceResponse = await app.inject({
+    method: 'POST',
+    url: `/api/v1/places/collections/${collectionId}/places`,
+    headers,
+    payload: {
+      placeId,
+    },
+  });
+
+  assert.equal(addPlaceResponse.statusCode, 200);
+  assert.deepEqual(addPlaceResponse.json().data.placeIds, [placeId]);
+
+  const listCollectionsResponse = await app.inject({
+    method: 'GET',
+    url: '/api/v1/places/collections',
+    headers,
+  });
+
+  assert.equal(listCollectionsResponse.statusCode, 200);
+  assert.equal(listCollectionsResponse.json().data.items.length, 1);
+  assert.deepEqual(
+    listCollectionsResponse.json().data.items[0].placeIds,
+    [placeId],
+  );
+
+  const removePlaceResponse = await app.inject({
+    method: 'DELETE',
+    url: `/api/v1/places/collections/${collectionId}/places/${placeId}`,
+    headers,
+  });
+
+  assert.equal(removePlaceResponse.statusCode, 200);
+  assert.deepEqual(removePlaceResponse.json().data.placeIds, []);
+
+  const deleteCollectionResponse = await app.inject({
+    method: 'DELETE',
+    url: `/api/v1/places/collections/${collectionId}`,
+    headers,
+  });
+
+  assert.equal(deleteCollectionResponse.statusCode, 204);
+
+  const listCollectionsAfterDeleteResponse = await app.inject({
+    method: 'GET',
+    url: '/api/v1/places/collections',
+    headers,
+  });
+
+  assert.equal(listCollectionsAfterDeleteResponse.statusCode, 200);
+  assert.equal(listCollectionsAfterDeleteResponse.json().data.items.length, 0);
+
+  await app.close();
+});
+
+test('duplicate save backfills missing place metadata from a newer search result', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    placeSearchClient: {
+      search: async () => [
+        {
+          address: '서울 성동구 연무장길 39-25',
+          lat: 37.544958,
+          lng: 127.055154,
+          name: '성수 미도인',
+          provider: 'kakao',
+          providerPlaceId: '123456789',
+        },
+      ],
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const firstSaveResponse = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places',
+    headers,
+    payload: {
+      provider: 'kakao',
+      providerPlaceId: '123456789',
+      name: '성수 미도인',
+      address: '서울 성동구 연무장길 39-25',
+      lat: 37.544958,
+      lng: 127.055154,
+    },
+  });
+
+  assert.equal(firstSaveResponse.statusCode, 201);
+  const placeId = firstSaveResponse.json().data.id as string;
+
+  const duplicateSaveResponse = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places',
+    headers,
+    payload: {
+      provider: 'kakao',
+      providerPlaceId: '123456789',
+      name: '성수 미도인',
+      address: '서울 성동구 연무장길 39-25',
+      roadAddress: '서울 성동구 연무장길 39-25',
+      categoryName: '음식점 > 한식 > 국밥',
+      categoryGroupName: '음식점',
+      phone: '02-1234-5678',
+      lat: 37.544958,
+      lng: 127.055154,
+      mapUrl: 'https://place.map.kakao.com/123456789',
+    },
+  });
+
+  assert.equal(duplicateSaveResponse.statusCode, 409);
+
+  const detailResponse = await app.inject({
+    method: 'GET',
+    url: `/api/v1/places/${placeId}`,
+    headers,
+  });
+
+  assert.equal(detailResponse.statusCode, 200);
+  assert.equal(detailResponse.json().data.categoryName, '음식점 > 한식 > 국밥');
+  assert.equal(detailResponse.json().data.categoryGroupName, '음식점');
+  assert.equal(detailResponse.json().data.phone, '02-1234-5678');
+  assert.equal(detailResponse.json().data.roadAddress, '서울 성동구 연무장길 39-25');
+  assert.equal(
+    detailResponse.json().data.mapUrl,
+    'https://place.map.kakao.com/123456789',
+  );
 
   await app.close();
 });
@@ -273,6 +514,20 @@ test('places can discover related places from a link', async () => {
   assert.equal(response.json().data.page.title, '성수 카페 투어 가이드');
   assert.equal(response.json().data.page.locationHints[0], '성수');
   assert.equal(response.json().data.items[0].name, '성수 대림창고');
+  assert.equal(response.json().data.items[0].matchConfidence, 'high');
+  assert.equal(
+    response.json().data.items[0].matchReasons[0].query,
+    response.json().data.items[0].matchedQuery,
+  );
+  assert.deepEqual(
+    response.json().data.items[0].matchReasons.map(
+      (reason: { type: string }) => reason.type,
+    ),
+    ['query', 'location', 'titleTokens', 'searchRank'],
+  );
+  assert.equal(response.json().data.items[0].matchReasons[1].location, '성수');
+  assert.deepEqual(response.json().data.items[0].matchReasons[2].tokens, ['성수']);
+  assert.equal(response.json().data.items[0].matchReasons[3].rank, 1);
   assert.equal(
     response.json().data.items[0].mapUrl,
     'https://place.map.kakao.com/987654321',
@@ -604,6 +859,183 @@ test('places discovery prefers explicit instagram place markers in reel captions
   await app.close();
 });
 
+test('places discovery trims addresses from instagram place markers and matches the venue name', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    pageFetchImpl: async () =>
+      new Response(
+        `
+          <html>
+            <head>
+              <meta
+                property="og:title"
+                content="Instagram의 호랑 큐레이터ㅣ맛집 팝업 여행 전시님 : &quot;봄에 놀러기기 가장 좋은 동네 을지로 3가에 유독 고깃집이 많은데 이곳은 을지로3가역 바로 앞 은성농원 인데요&quot;"
+              />
+              <meta
+                name="description"
+                content="268 likes, 8 comments - horang_curator - April 9, 2026: &quot;봄에 놀러기기 가장 좋은 동네 을지로 3가에 유독 고깃집이 많은데 이곳은 을지로3가역 바로 앞 은성농원 인데요 📍은성농원 서울 중구 충무로 50-1 1층&quot;."
+              />
+            </head>
+            <body>
+              Instagram Instagram Log In Sign Up Meta About Blog Jobs Help API Privacy Terms
+            </body>
+          </html>
+        `,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+          status: 200,
+        },
+      ),
+    placeSearchClient: {
+      search: async query => {
+        if (!query.includes('은성농원')) {
+          return [];
+        }
+
+        return [
+          {
+            address: '서울 광진구 동일로24길 95 1층',
+            lat: 37.54812,
+            lng: 127.07111,
+            mapUrl: 'https://place.map.kakao.com/998877',
+            name: '은성농원 건대점',
+            provider: 'kakao',
+            providerPlaceId: '998877',
+            roadAddress: '서울 광진구 동일로24길 95 1층',
+          },
+          {
+            address: '서울 중구 충무로 50-1 1층',
+            lat: 37.56558,
+            lng: 126.99184,
+            mapUrl: 'https://place.map.kakao.com/112233',
+            name: '은성농원',
+            provider: 'kakao',
+            providerPlaceId: '112233',
+            roadAddress: '서울 중구 충무로 50-1 1층',
+          },
+        ];
+      },
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/discover-link',
+    headers,
+    payload: {
+      url: 'https://www.instagram.com/p/DW56N0dkzQd/?hl=ko&img_index=1',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.queryHints[0], '은성농원');
+  assert.equal(response.json().data.items[0].name, '은성농원');
+  assert.equal(response.json().data.items[0].providerPlaceId, '112233');
+  assert.equal(response.json().data.page.locationHints[0], '을지로');
+
+  await app.close();
+});
+
+test('places discovery prioritizes an explicit venue name followed by an address', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    pageFetchImpl: async () =>
+      new Response(
+        `
+          <html>
+            <head>
+              <meta
+                property="og:title"
+                content="Instagram의 펀푸드 먹스타_수원맛집 서울맛집 안산맛집 인천맛집님 : &quot;두꺼워서 좋아요. 얼른 가보세요~ 석암생소금구이 부천신중동점 경기 부천시 원미구 중동로254번길 49 1층 101호&quot;"
+              />
+              <meta
+                name="description"
+                content="78 likes, 29 comments - fun_food_ad - April 13, 2026: &quot;두꺼워서 좋아요. 얼른 가보세요~ 석암생소금구이 부천신중동점 경기 부천시 원미구 중동로254번길 49 1층 101호&quot;."
+              />
+            </head>
+            <body>
+              Instagram Instagram Log In Sign Up Meta About Blog Jobs Help API Privacy Terms
+            </body>
+          </html>
+        `,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+          status: 200,
+        },
+      ),
+    imageOcrClient: {
+      extractHints: async () => ['삼은L', '고기', '미나리'],
+    },
+    placeSearchClient: {
+      search: async query => {
+        if (!query.includes('석암생소금구이 부천신중동점')) {
+          return [];
+        }
+
+        return [
+          {
+            address: '경기 부천시 원미구 중동로254번길 49 1층 101호',
+            lat: 37.50281,
+            lng: 126.77621,
+            mapUrl: 'https://place.map.kakao.com/123321',
+            name: '석암생소금구이 부천신중동점',
+            provider: 'kakao',
+            providerPlaceId: '123321',
+          },
+        ];
+      },
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/discover-link',
+    headers,
+    payload: {
+      url: 'https://www.instagram.com/p/DXEJ1eME4Zg/?hl=ko',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(
+    response.json().data.queryHints[0],
+    '석암생소금구이 부천신중동점',
+  );
+  assert.equal(
+    response.json().data.items[0].name,
+    '석암생소금구이 부천신중동점',
+  );
+  assert.ok(response.json().data.page.locationHints.includes('부천'));
+  assert.equal(response.json().data.queryHints.includes('서울 맛집'), false);
+  assert.equal(response.json().data.queryHints.includes('고기'), false);
+  assert.equal(response.json().data.queryHints.includes('미나리'), false);
+  assert.equal(response.json().data.queryHints.includes('삼은L'), false);
+
+  await app.close();
+});
+
 test('places discovery prefers instagram place markers over narrative fragments', async () => {
   const app = buildApp({
     env: {
@@ -644,6 +1076,9 @@ test('places discovery prefers instagram place markers over narrative fragments'
           status: 200,
         },
       ),
+    imageOcrClient: {
+      extractHints: async () => ['노포갬성', '0감정', '강을', '직접'],
+    },
   });
   const headers = await createAuthenticatedHeader(app);
 
@@ -658,6 +1093,8 @@ test('places discovery prefers instagram place markers over narrative fragments'
 
   assert.equal(response.statusCode, 200);
   assert.equal(response.json().data.page.locationHints[0], '전주');
+  assert.equal(response.json().data.analysis.kind, 'multi');
+  assert.equal(response.json().data.analysis.status, 'partial');
   assert.deepEqual(response.json().data.queryHints, [
     '메르미진미집',
     '홍화연',
@@ -665,6 +1102,280 @@ test('places discovery prefers instagram place markers over narrative fragments'
   ]);
   assert.equal(response.json().data.queryHints.includes('도장깨기'), false);
   assert.equal(response.json().data.queryHints.includes('제대로'), false);
+
+  await app.close();
+});
+
+test('places discovery extracts sectioned instagram list entries with time markers', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    placeSearchClient: {
+      search: async query => {
+        if (query.includes('대림국수')) {
+          return [
+            {
+              address: '서울 중구 충무로 12',
+              lat: 37.56631,
+              lng: 126.99112,
+              mapUrl: 'https://place.map.kakao.com/200001',
+              name: '대림국수',
+              provider: 'kakao',
+              providerPlaceId: '200001',
+            },
+          ];
+        }
+
+        if (query.includes('백만불식품')) {
+          return [
+            {
+              address: '서울 중구 충무로 18',
+              lat: 37.56651,
+              lng: 126.99232,
+              mapUrl: 'https://place.map.kakao.com/200002',
+              name: '백만불식품',
+              provider: 'kakao',
+              providerPlaceId: '200002',
+            },
+          ];
+        }
+
+        return [];
+      },
+    },
+    pageFetchImpl: async () =>
+      new Response(
+        `
+          <html>
+            <head>
+              <meta
+                property="og:title"
+                content="서울야장 on Instagram: &quot;서울에 있는 야장 동네별로 모아봤당 🍻을지로야장 📍대림국수 ⏰11:00~22:00 📍백만불식품 ⏰15:00~23:00&quot;"
+              />
+              <meta
+                name="description"
+                content="414 likes, 11 comments - all.about.seoul.trip - April 8, 2026: &quot;서울에 있는 야장 동네별로 모아봤당 🍻을지로야장 📍대림국수 ⏰11:00~22:00 📍백만불식품 ⏰15:00~23:00&quot;."
+              />
+            </head>
+            <body>
+              Instagram Instagram Log In Sign Up Meta About Blog Jobs Help API Privacy Terms
+            </body>
+          </html>
+        `,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+          status: 200,
+        },
+      ),
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/discover-link',
+    headers,
+    payload: {
+      url: 'https://www.instagram.com/p/DW56ItjlFJT/?hl=ko&img_index=1',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.analysis.kind, 'multi');
+  assert.equal(response.json().data.analysis.status, 'ready');
+  assert.ok(response.json().data.queryHints.includes('대림국수'));
+  assert.ok(response.json().data.queryHints.includes('백만불식품'));
+  assert.equal(response.json().data.queryHints.includes('야장'), false);
+  assert.equal(response.json().data.queryHints.includes('서울 맛집'), false);
+
+  await app.close();
+});
+
+test('places discovery suppresses a single low-evidence venue for roundup-style links', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    imageOcrClient: {
+      extractHints: async () => ['꼬꼬댁꼬꼬'],
+    },
+    pageFetchImpl: async () =>
+      new Response(
+        `
+          <html>
+            <head>
+              <meta
+                property="og:title"
+                content="서울야장 on Instagram: &quot;다음 주 가야 할 성북천 벚꽃 야장&quot;"
+              />
+              <meta
+                name="description"
+                content="1,301 likes, 45 comments - seoul_life__ - April 14, 2026: &quot;벚꽃 피면 무조건 가야 하는 성북천. 벚꽃 야장스팟 싹 - 다 모아왔으니까.&quot;"
+              />
+              <meta
+                property="og:image"
+                content="https://images.example.com/seongbuk-stream-yajang.jpg"
+              />
+            </head>
+            <body>
+              Instagram Instagram Log In Sign Up Meta About Blog Jobs Help API Privacy Terms
+            </body>
+          </html>
+        `,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+          status: 200,
+        },
+      ),
+    placeSearchClient: {
+      search: async query => {
+        if (!query.includes('꼬꼬댁꼬꼬')) {
+          return [];
+        }
+
+        return [
+          {
+            address: '서울 성북구 동소문동2가 131',
+            lat: 37.59021,
+            lng: 127.01001,
+            mapUrl: 'https://place.map.kakao.com/881122',
+            name: '꼬꼬댁꼬꼬',
+            provider: 'kakao',
+            providerPlaceId: '881122',
+          },
+        ];
+      },
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/discover-link',
+    headers,
+    payload: {
+      url: 'https://www.instagram.com/p/example-seongbuk-yajang/',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(response.json().data.analysis.kind, 'multi');
+  assert.equal(response.json().data.analysis.status, 'partial');
+  assert.equal(response.json().data.items.length, 0);
+  assert.deepEqual(response.json().data.queryHints, []);
+
+  await app.close();
+});
+
+test('places discovery extracts comma-delimited venue names before searching', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    placeSearchClient: {
+      search: async query => {
+        if (query.includes('강릉감자닭강정')) {
+          return [
+            {
+              address: '강원 강릉시 금성로13번길 7',
+              lat: 37.75412,
+              lng: 128.89741,
+              mapUrl: 'https://place.map.kakao.com/300001',
+              name: '강릉감자닭강정',
+              provider: 'kakao',
+              providerPlaceId: '300001',
+            },
+          ];
+        }
+
+        if (query.includes('부자대게')) {
+          return [
+            {
+              address: '강원 강릉시 금성로13번길 11',
+              lat: 37.75431,
+              lng: 128.89792,
+              mapUrl: 'https://place.map.kakao.com/300002',
+              name: '부자대게',
+              provider: 'kakao',
+              providerPlaceId: '300002',
+            },
+          ];
+        }
+
+        return [];
+      },
+    },
+    pageFetchImpl: async () =>
+      new Response(
+        `
+          <html>
+            <head>
+              <meta
+                property="og:title"
+                content="Instagram의 펀푸드 먹스타님 : &quot;강릉여행, 시장표맛집 도장깨기 필승 코스 공개합니다. 강릉감자닭강정, 감자채 튀김이 듬뿍. 부자대게, 시장골목에서 다들 이 봉투 들고있으면 맛집 인증이죠? 참피온양념치킨, 30년 노포갬성. 이모네강릉커피콩빵, 선물은 시장표 커피콩빵으로 해보세요.&quot;"
+              />
+              <meta
+                name="description"
+                content="182 likes, 61 comments - fun_food_ad - April 7, 2026: &quot;강릉여행, 시장표맛집 도장깨기 필승 코스 공개합니다. 강릉감자닭강정, 감자채 튀김이 듬뿍. 부자대게, 시장골목에서 다들 이 봉투 들고있으면 맛집 인증이죠? 참피온양념치킨, 30년 노포갬성. 이모네강릉커피콩빵, 선물은 시장표 커피콩빵으로 해보세요.&quot;"
+              />
+            </head>
+            <body>
+              Instagram Instagram Log In Sign Up Meta About Blog Jobs Help API Privacy Terms
+            </body>
+          </html>
+        `,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+          status: 200,
+        },
+      ),
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/discover-link',
+    headers,
+    payload: {
+      url: 'https://www.instagram.com/p/DW0qYhDk99i/?hl=ko',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.ok(response.json().data.queryHints.includes('강릉감자닭강정'));
+  assert.ok(response.json().data.queryHints.includes('부자대게'));
+  assert.equal(response.json().data.queryHints.includes('강을'), false);
+  assert.equal(response.json().data.queryHints.includes('맛집'), false);
+  assert.equal(response.json().data.queryHints.includes('직접'), false);
+  assert.equal(response.json().data.queryHints.includes('노포갬성'), false);
+  assert.equal(
+    response.json().data.queryHints.includes('강릉중앙시장 가면 여긴 필수'),
+    false,
+  );
 
   await app.close();
 });
@@ -1132,6 +1843,287 @@ test('places discovery checks up to 10 instagram carousel images', async () => {
   assert.equal(
     ocrCalls.at(-1),
     'https://scontent-nrt6-1.cdninstagram.com/v/t51.82787-15/slide-1.jpg',
+  );
+
+  await app.close();
+});
+
+test('places discovery falls back to instagram embed captions when the public page is generic', async () => {
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    pageFetchImpl: async input => {
+      const url = input instanceof Request ? input.url : String(input);
+
+      if (url.endsWith('/embed/captioned/')) {
+        return new Response(
+          `
+            <html>
+              <body>
+                <div class="HeaderSecondaryContent">
+                  <span class="LocationAndSponsor">
+                    <a class="Location">전주</a>
+                  </span>
+                </div>
+                <div class="Caption">
+                  <a class="CaptionUsername">all.about.jeonju</a><br /><br />
+                  🍴전주 남부시장 필먹코스 푼다.🍴<br />
+                  📍메르미진미집<br />
+                  : 시원한 메밀소바 제대로 말아주는 곳<br />
+                  <br />
+                  📍홍화연<br />
+                  : 자극적인 물짜장과 다르게 재료가 다 느껴지는 맛
+                  <div class="CaptionComments">
+                    <a class="CaptionCommentsExpand">View all 12 comments</a>
+                  </div>
+                </div>
+                <div class="Footer"></div>
+              </body>
+            </html>
+          `,
+          {
+            headers: {
+              'content-type': 'text/html; charset=utf-8',
+            },
+            status: 200,
+          },
+        );
+      }
+
+      return new Response(
+        `
+          <html>
+            <head>
+              <meta property="og:title" content="Instagram" />
+              <meta
+                name="description"
+                content="Create an account or log in to Instagram - Share what you're into with the people who get you."
+              />
+            </head>
+            <body>
+              Instagram Instagram Log In Sign Up Meta About Blog Jobs Help API Privacy Terms
+            </body>
+          </html>
+        `,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+          status: 200,
+        },
+      );
+    },
+    placeSearchClient: {
+      search: async query => {
+        if (!query.includes('메르미진미집')) {
+          return [];
+        }
+
+        return [
+          {
+            address: '전북 전주시 완산구 풍남문1길 19',
+            lat: 35.8121,
+            lng: 127.1452,
+            mapUrl: 'https://place.map.kakao.com/111222',
+            name: '메르미진미집',
+            provider: 'kakao',
+            providerPlaceId: '111222',
+          },
+        ];
+      },
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/discover-link',
+    headers,
+    payload: {
+      url: 'https://www.instagram.com/p/DWBK956jR0X/?img_index=1',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.ok(response.json().data.queryHints.includes('메르미진미집'));
+  assert.ok(response.json().data.queryHints.includes('홍화연'));
+  assert.equal(response.json().data.items[0].name, '메르미진미집');
+  assert.equal(response.json().data.page.locationHints[0], '전주');
+
+  await app.close();
+});
+
+test('places discovery canonicalizes instagram username post links before embed analysis', async () => {
+  const fetchCalls: string[] = [];
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    pageFetchImpl: async input => {
+      const url = input instanceof Request ? input.url : String(input);
+      fetchCalls.push(url);
+
+      if (url === 'https://www.instagram.com/p/DWBK956jR0X/embed/captioned/') {
+        return new Response(
+          `
+            <html>
+              <body>
+                <div class="Caption">
+                  <a class="CaptionUsername">all.about.jeonju</a><br /><br />
+                  📍메르미진미집
+                </div>
+                <div class="Footer"></div>
+              </body>
+            </html>
+          `,
+          {
+            headers: {
+              'content-type': 'text/html; charset=utf-8',
+            },
+            status: 200,
+          },
+        );
+      }
+
+      return new Response(
+        `
+          <html>
+            <head>
+              <meta property="og:title" content="Instagram" />
+              <meta
+                name="description"
+                content="Create an account or log in to Instagram - Share what you're into with the people who get you."
+              />
+            </head>
+            <body></body>
+          </html>
+        `,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+          status: 200,
+        },
+      );
+    },
+    placeSearchClient: {
+      search: async () => [],
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/discover-link',
+    headers,
+    payload: {
+      url: 'https://www.instagram.com/horang_curator/p/DWBK956jR0X/?img_index=1',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.ok(response.json().data.queryHints.includes('메르미진미집'));
+  assert.ok(
+    fetchCalls.includes('https://www.instagram.com/p/DWBK956jR0X/?img_index=1'),
+  );
+  assert.ok(
+    fetchCalls.includes('https://www.instagram.com/p/DWBK956jR0X/embed/captioned/'),
+  );
+
+  await app.close();
+});
+
+test('places discovery unwraps instagram redirect links before analysis', async () => {
+  const fetchCalls: string[] = [];
+  const app = buildApp({
+    env: {
+      APP_ENV: 'dev',
+      CORS_ORIGIN: '*',
+      HOST: '0.0.0.0',
+      KAKAO_REST_API_KEY: 'test-key',
+      LOG_LEVEL: 'silent',
+      MAP_PROVIDER: 'kakao',
+      PORT: 3000,
+    },
+    pageFetchImpl: async input => {
+      const url = input instanceof Request ? input.url : String(input);
+      fetchCalls.push(url);
+
+      if (url.endsWith('/embed/captioned/')) {
+        return new Response(
+          `
+            <html>
+              <body>
+                <div class="Caption">
+                  <a class="CaptionUsername">all.about.jeonju</a><br /><br />
+                  📍메르미진미집
+                </div>
+                <div class="Footer"></div>
+              </body>
+            </html>
+          `,
+          {
+            headers: {
+              'content-type': 'text/html; charset=utf-8',
+            },
+            status: 200,
+          },
+        );
+      }
+
+      return new Response(
+        `
+          <html>
+            <head>
+              <meta property="og:title" content="Instagram" />
+              <meta
+                name="description"
+                content="Create an account or log in to Instagram - Share what you're into with the people who get you."
+              />
+            </head>
+            <body></body>
+          </html>
+        `,
+        {
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+          },
+          status: 200,
+        },
+      );
+    },
+    placeSearchClient: {
+      search: async () => [],
+    },
+  });
+  const headers = await createAuthenticatedHeader(app);
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/places/discover-link',
+    headers,
+    payload: {
+      url: 'https://l.instagram.com/?u=https%3A%2F%2Fwww.instagram.com%2Fp%2FDWBK956jR0X%2F%3Fimg_index%3D1&is_from_rle=1',
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(
+    fetchCalls[0],
+    'https://www.instagram.com/p/DWBK956jR0X/?img_index=1',
   );
 
   await app.close();

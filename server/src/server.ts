@@ -3,7 +3,9 @@ import { getEnv } from './config/env.js';
 
 async function start() {
   const env = getEnv();
-  const app = buildApp();
+  const app = buildApp({
+    storageMode: 'sqlite',
+  });
 
   try {
     await app.listen({

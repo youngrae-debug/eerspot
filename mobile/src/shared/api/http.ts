@@ -41,6 +41,7 @@ export type RequestOptions = {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   accessToken?: string;
+  timeoutMs?: number;
 };
 
 export async function request<T>(
@@ -48,9 +49,10 @@ export async function request<T>(
   options: RequestOptions = {},
 ): Promise<T> {
   const controller = new AbortController();
+  const hasJsonBody = options.body !== undefined;
   const timeout = setTimeout(() => {
     controller.abort();
-  }, REQUEST_TIMEOUT_MS);
+  }, options.timeoutMs ?? REQUEST_TIMEOUT_MS);
 
   let response: Response;
 
@@ -58,12 +60,12 @@ export async function request<T>(
     response = await fetch(`${env.apiBaseUrl}${path}`, {
       method: options.method ?? 'GET',
       headers: {
-        'Content-Type': 'application/json',
+        ...(hasJsonBody ? { 'Content-Type': 'application/json' } : {}),
         ...(options.accessToken
           ? { Authorization: `Bearer ${options.accessToken}` }
           : {}),
       },
-      ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+      ...(hasJsonBody ? { body: JSON.stringify(options.body) } : {}),
       signal: controller.signal,
     });
   } catch (error) {

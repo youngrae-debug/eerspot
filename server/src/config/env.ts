@@ -8,6 +8,7 @@ const currentFilePath = fileURLToPath(import.meta.url);
 const currentDirPath = dirname(currentFilePath);
 const serverRootPath = resolve(currentDirPath, '../..');
 const workspaceRootPath = resolve(serverRootPath, '..');
+const defaultDatabasePath = resolve(serverRootPath, 'data', 'eerspot.sqlite');
 
 loadDotenv({
   path: resolve(workspaceRootPath, '.env'),
@@ -30,6 +31,7 @@ const envSchema = z.object({
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
   CORS_ORIGIN: z.string().default('*'),
+  DATABASE_PATH: z.string().default(defaultDatabasePath),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

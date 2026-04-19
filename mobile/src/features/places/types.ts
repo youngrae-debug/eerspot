@@ -5,6 +5,10 @@ export type SearchPlace = {
   providerPlaceId: string;
   name: string;
   address: string;
+  roadAddress?: string | null;
+  categoryName?: string | null;
+  categoryGroupName?: string | null;
+  phone?: string | null;
   lat: number;
   lng: number;
   mapUrl?: string | null;
@@ -15,6 +19,14 @@ export type SavedPlace = SearchPlace & {
   note: string | null;
   isFavorite: boolean;
   savedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PlaceCollection = {
+  id: string;
+  name: string;
+  placeIds: string[];
   createdAt: string;
   updatedAt: string;
 };

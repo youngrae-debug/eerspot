@@ -1,11 +1,11 @@
 import { AppError } from '../../lib/http/errors.js';
 
 import { hashPassword, verifyPassword } from './password.js';
-import { InMemoryAuthRepository } from './repository.js';
+import type { AuthRepository } from './repository.js';
 import type { AuthTokens, LoginResult } from './types.js';
 
 export class AuthService {
-  constructor(private readonly repository: InMemoryAuthRepository) {}
+  constructor(private readonly repository: AuthRepository) {}
 
   async signUp(input: {
     email: string;

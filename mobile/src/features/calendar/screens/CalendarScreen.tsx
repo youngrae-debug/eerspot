@@ -1,11 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 
@@ -23,7 +26,12 @@ import {
   listSchedules,
   updateSchedule,
 } from '../api/schedulesApi';
-import type { ScheduleDetail, ScheduleSummary } from '../types';
+import type {
+  ScheduleDetail,
+  ScheduleRepeatFrequency,
+  ScheduleReminderMinutesBefore,
+  ScheduleSummary,
+} from '../types';
 
 type CalendarConfig = {
   monthCount: number;
@@ -50,12 +58,19 @@ type ScheduleEditorDraft = {
   memo: string;
   mode: 'create' | 'edit';
   placeId: string | null;
+  reminderMinutesBefore: ScheduleReminderMinutesBefore | null;
+  repeatFrequency: ScheduleRepeatFrequency;
   scheduledAtInput: string;
   title: string;
   visitStatus: ScheduleDetail['visitStatus'];
 };
 
 type CalendarViewMode = 'month' | 'day';
+type CalendarDraftRequest = {
+  key: number;
+  placeId: string | null;
+  title: string | null;
+};
 
 const CALENDAR_START_YEAR = 2026;
 const CALENDAR_START_MONTH_INDEX = 0;
@@ -84,18 +99,27 @@ const WEEKDAY_LABELS: Record<Language, string[]> = {
 type CalendarScreenProps = {
   bottomInset: number;
   dataRefreshKey: number;
+  draftRequest?: CalendarDraftRequest | null;
   focusRequestKey: number;
+  onSchedulesChanged?: () => void;
   requestedDateKey: string | null;
+  requestedViewMode?: CalendarViewMode;
 };
 
 export function CalendarScreen({
   bottomInset,
   dataRefreshKey,
+  draftRequest = null,
   focusRequestKey,
+  onSchedulesChanged,
   requestedDateKey,
+  requestedViewMode = 'month',
 }: CalendarScreenProps): React.JSX.Element {
   const { authorizedRequest } = useAuth();
   const { language, t } = useLanguage();
+  const handledDraftRequestKeyRef = useRef<number | null>(null);
+  const monthPagerRef = useRef<ScrollView | null>(null);
+  const { width: windowWidth } = useWindowDimensions();
   const calendarConfig = useMemo(() => getCalendarConfig(), []);
   const calendarMonths = useMemo(() => {
     return buildCalendarMonths(calendarConfig, language);
@@ -108,10 +132,17 @@ export function CalendarScreen({
     [calendarRange],
   );
   const weekdayLabels = useMemo(() => WEEKDAY_LABELS[language], [language]);
+  const todayKey = useMemo(() => formatDate(new Date()), []);
   const [isLoading, setIsLoading] = useState(false);
   const [schedules, setSchedules] = useState<ScheduleSummary[]>([]);
   const [selectedDate, setSelectedDate] = useState(initialSelectedDate);
+  const [visibleMonthIndex, setVisibleMonthIndex] = useState(() => {
+    return getMonthIndexForDateKey(calendarConfig, initialSelectedDate);
+  });
   const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
+  const [hasExplicitDateSelection, setHasExplicitDateSelection] = useState(
+    Boolean(requestedDateKey) || requestedViewMode === 'day',
+  );
   const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
   const [editorDraft, setEditorDraft] = useState<ScheduleEditorDraft | null>(
     null,
@@ -128,12 +159,26 @@ export function CalendarScreen({
   const selectedSchedules = useMemo(() => {
     return schedulesByDate[selectedDate] ?? [];
   }, [schedulesByDate, selectedDate]);
+  const visibleMonth = calendarMonths[visibleMonthIndex] ?? calendarMonths[0];
+  const monthPageWidth = Math.max(
+    windowWidth - journalTokens.spacing.screenHorizontal * 2,
+    280,
+  );
   const savedPlacesById = useMemo(() => {
     return savedPlaces.reduce<Record<string, SavedPlace>>((result, place) => {
       result[place.id] = place;
       return result;
     }, {});
   }, [savedPlaces]);
+  const editorDraftDate = editorDraft
+    ? parseDateInputValue(extractDatePart(editorDraft.scheduledAtInput))
+    : null;
+  const editorDraftDateTime = editorDraft
+    ? parseDateTimeValue(editorDraft.scheduledAtInput)
+    : null;
+  const editorDraftTimeInput = editorDraft
+    ? extractTimePart(editorDraft.scheduledAtInput)
+    : '';
 
   const refreshSchedules = useCallback(
     async (isMounted?: () => boolean) => {
@@ -196,8 +241,26 @@ export function CalendarScreen({
     const nextDate = getInitialSelectedDate(calendarRange, requestedDateKey);
 
     setSelectedDate(nextDate);
-    setViewMode('month');
-  }, [calendarRange, focusRequestKey, requestedDateKey]);
+    setVisibleMonthIndex(getMonthIndexForDateKey(calendarConfig, nextDate));
+    setViewMode(requestedViewMode);
+    setHasExplicitDateSelection(
+      Boolean(requestedDateKey) || requestedViewMode === 'day',
+    );
+    setEditorDraft(null);
+  }, [
+    calendarConfig,
+    calendarRange,
+    focusRequestKey,
+    requestedDateKey,
+    requestedViewMode,
+  ]);
+
+  useEffect(() => {
+    monthPagerRef.current?.scrollTo?.({
+      x: visibleMonthIndex * monthPageWidth,
+      animated: false,
+    });
+  }, [monthPageWidth, visibleMonthIndex]);
 
   useEffect(() => {
     if (!editorDraft || editorDraft.mode !== 'edit' || !editorDraft.id) {
@@ -229,6 +292,8 @@ export function CalendarScreen({
         memo: schedule.memo ?? '',
         mode: 'edit',
         placeId: schedule.placeId,
+        reminderMinutesBefore: schedule.reminderMinutesBefore,
+        repeatFrequency: 'none',
         scheduledAtInput: formatDateTimeInput(schedule.scheduledAt),
         title: schedule.title,
         visitStatus: schedule.visitStatus,
@@ -240,32 +305,73 @@ export function CalendarScreen({
     }
   };
 
-  const handleOpenCreateDraft = async () => {
-    setIsEditorLoading(true);
-    setFeedback(null);
+  const handleOpenCreateDraft = useCallback(
+    async (
+      options: {
+        dateKey?: string;
+        placeId?: string | null;
+        title?: string | null;
+      } = {},
+    ) => {
+      setIsEditorLoading(true);
+      setFeedback(null);
 
-    try {
-      const placesData =
-        savedPlaces.length > 0
-          ? { items: savedPlaces }
-          : await listPlaces(authorizedRequest);
+      try {
+        const placesData =
+          savedPlaces.length > 0
+            ? { items: savedPlaces }
+            : await listPlaces(authorizedRequest);
+        const requestedPlaceId =
+          options.placeId &&
+          placesData.items.some(place => place.id === options.placeId)
+            ? options.placeId
+            : null;
 
-      setSavedPlaces(placesData.items);
-      setEditorDraft({
-        id: null,
-        memo: '',
-        mode: 'create',
-        placeId: null,
-        scheduledAtInput: buildSelectedDateDraft(selectedDate),
-        title: '',
-        visitStatus: 'planned',
-      });
-    } catch (caughtError) {
-      setFeedback(extractErrorMessage(caughtError));
-    } finally {
-      setIsEditorLoading(false);
+        setSavedPlaces(placesData.items);
+        setEditorDraft({
+          id: null,
+          memo: '',
+          mode: 'create',
+          placeId: requestedPlaceId,
+          reminderMinutesBefore: null,
+          repeatFrequency: 'none',
+          scheduledAtInput: buildSelectedDateDraft(
+            options.dateKey ?? selectedDate,
+          ),
+          title: options.title ?? '',
+          visitStatus: 'planned',
+        });
+      } catch (caughtError) {
+        setFeedback(extractErrorMessage(caughtError));
+      } finally {
+        setIsEditorLoading(false);
+      }
+    },
+    [authorizedRequest, savedPlaces, selectedDate],
+  );
+
+  useEffect(() => {
+    if (!draftRequest) {
+      return;
     }
-  };
+
+    if (handledDraftRequestKeyRef.current === draftRequest.key) {
+      return;
+    }
+
+    handledDraftRequestKeyRef.current = draftRequest.key;
+
+    handleOpenCreateDraft({
+      dateKey: requestedDateKey ?? selectedDate,
+      placeId: draftRequest.placeId,
+      title: draftRequest.title,
+    }).catch(() => undefined);
+  }, [
+    draftRequest,
+    handleOpenCreateDraft,
+    requestedDateKey,
+    selectedDate,
+  ]);
 
   const handleSaveEditor = async () => {
     if (!editorDraft) {
@@ -291,21 +397,34 @@ export function CalendarScreen({
 
     try {
       if (editorDraft.mode === 'create') {
-        await createSchedule(authorizedRequest, {
+        const createdSchedule = await createSchedule(authorizedRequest, {
           title: normalizedTitle,
           scheduledAt,
           memo: normalizeMemo(editorDraft.memo),
           placeId: editorDraft.placeId,
+          reminderMinutesBefore: editorDraft.reminderMinutesBefore,
+          repeatFrequency: editorDraft.repeatFrequency,
         });
+
+        setFeedback(
+          createdSchedule.createdCount > 1
+            ? t('calendar_schedule_series_created', {
+                count: createdSchedule.createdCount,
+              })
+            : t('calendar_schedule_created'),
+        );
       } else if (editorDraft.id) {
         await updateSchedule(authorizedRequest, {
           id: editorDraft.id,
           memo: normalizeMemo(editorDraft.memo),
           placeId: editorDraft.placeId,
+          reminderMinutesBefore: editorDraft.reminderMinutesBefore,
           scheduledAt,
           title: normalizedTitle,
           visitStatus: editorDraft.visitStatus,
         });
+
+        setFeedback(t('calendar_schedule_updated'));
       }
 
       const nextDateKey = extractDateKey(scheduledAt);
@@ -313,13 +432,7 @@ export function CalendarScreen({
       setSelectedDate(nextDateKey);
       setEditorDraft(null);
       await refreshSchedules();
-      setFeedback(
-        t(
-          editorDraft.mode === 'create'
-            ? 'calendar_schedule_created'
-            : 'calendar_schedule_updated',
-        ),
-      );
+      onSchedulesChanged?.();
     } catch (caughtError) {
       setFeedback(extractErrorMessage(caughtError));
     } finally {
@@ -339,6 +452,7 @@ export function CalendarScreen({
       await deleteSchedule(authorizedRequest, editorDraft.id);
       setEditorDraft(null);
       await refreshSchedules();
+      onSchedulesChanged?.();
       setFeedback(t('calendar_schedule_deleted'));
     } catch (caughtError) {
       setFeedback(extractErrorMessage(caughtError));
@@ -347,46 +461,77 @@ export function CalendarScreen({
     }
   };
 
-  const handleOpenDayDetail = (dateKey: string) => {
+  const handleSelectDate = (dateKey: string) => {
     setSelectedDate(dateKey);
+    setVisibleMonthIndex(getMonthIndexForDateKey(calendarConfig, dateKey));
+    setHasExplicitDateSelection(true);
+    setEditorDraft(null);
+    setFeedback(null);
     setViewMode('day');
   };
 
   const handleReturnToMonth = () => {
     setViewMode('month');
+    setVisibleMonthIndex(getMonthIndexForDateKey(calendarConfig, selectedDate));
+    setHasExplicitDateSelection(true);
+  };
+
+  const handleMonthPagerMomentumEnd = (
+    event: NativeSyntheticEvent<NativeScrollEvent>,
+  ) => {
+    const nextIndex = Math.round(
+      event.nativeEvent.contentOffset.x / monthPageWidth,
+    );
+
+    setVisibleMonthIndex(nextIndex);
+    setEditorDraft(null);
+    setHasExplicitDateSelection(false);
+    setFeedback(null);
+  };
+
+  const updateEditorScheduledAt = (
+    buildNextValue: (currentValue: string) => string | null,
+  ) => {
+    setEditorDraft(currentDraft => {
+      if (!currentDraft) {
+        return currentDraft;
+      }
+
+      const nextValue = buildNextValue(currentDraft.scheduledAtInput);
+
+      if (!nextValue) {
+        return currentDraft;
+      }
+
+      return {
+        ...currentDraft,
+        scheduledAtInput: nextValue,
+      };
+    });
   };
 
   const editorSection = editorDraft ? (
     <View style={styles.editorSection}>
-      <View style={styles.editorHeader}>
-        <Text style={styles.editorMetaPreview}>
-          {editorDraft.scheduledAtInput}
-        </Text>
-      </View>
+      <View style={styles.editorHero}>
+        <View style={styles.editorHeader}>
+          <Text style={styles.editorEyebrow}>
+            {t(
+              editorDraft.mode === 'create'
+                ? 'calendar_new_entry'
+                : 'calendar_entry_detail',
+            )}
+          </Text>
+          <Text style={styles.editorMetaPreview}>
+            {editorDraftDateTime
+              ? `${formatSelectedDateLabel(
+                  formatDate(editorDraftDateTime),
+                  language,
+                )} · ${formatTimeLabel(editorDraftDateTime.toISOString())}`
+              : editorDraft.scheduledAtInput}
+          </Text>
+        </View>
 
-      <TextInput
-        onChangeText={nextValue => {
-          setEditorDraft(currentDraft => {
-            if (!currentDraft) {
-              return currentDraft;
-            }
-
-            return {
-              ...currentDraft,
-              title: nextValue,
-            };
-          });
-        }}
-        placeholder={t('calendar_title_placeholder')}
-        placeholderTextColor={colors.textMuted}
-        style={styles.entryTitleInput}
-        value={editorDraft.title}
-      />
-
-      <View style={styles.fieldBlock}>
-        <Text style={styles.fieldLabel}>{t('calendar_date_time')}</Text>
         <TextInput
-          autoCapitalize="none"
           onChangeText={nextValue => {
             setEditorDraft(currentDraft => {
               if (!currentDraft) {
@@ -395,22 +540,320 @@ export function CalendarScreen({
 
               return {
                 ...currentDraft,
-                scheduledAtInput: nextValue,
+                title: nextValue,
               };
             });
           }}
-          placeholder={t('calendar_invalid_meta')}
+          placeholder={t('calendar_title_placeholder')}
           placeholderTextColor={colors.textMuted}
-          style={styles.input}
-          value={editorDraft.scheduledAtInput}
+          style={styles.entryTitleInput}
+          value={editorDraft.title}
         />
       </View>
 
-      <View style={styles.fieldBlock}>
-        <Text style={styles.fieldLabel}>{t('calendar_linked_place')}</Text>
-        <View style={styles.optionRow}>
-          <Pressable
-            onPress={() => {
+      <View style={styles.editorPanel}>
+        <View style={styles.fieldBlock}>
+          <Text style={styles.fieldLabel}>{t('calendar_date_time')}</Text>
+          <View style={styles.dateTimeControlStack}>
+            <View style={styles.dateSelector}>
+              <Pressable
+                accessibilityLabel={t('calendar_previous_day')}
+                disabled={
+                  !editorDraftDate ||
+                  formatDate(editorDraftDate) <= calendarRange.from
+                }
+                onPress={() => {
+                  updateEditorScheduledAt(currentValue => {
+                    return shiftDateTimeInput(currentValue, calendarRange, -1);
+                  });
+                }}
+                style={[
+                  styles.stepperButton,
+                  styles.stepperButtonPrev,
+                  !editorDraftDate ||
+                  formatDate(editorDraftDate) <= calendarRange.from
+                    ? styles.stepperButtonDisabled
+                    : null,
+                ]}
+                testID="calendar-date-prev-button"
+              >
+                <Text style={styles.stepperButtonLabel}>{'<'}</Text>
+              </Pressable>
+
+              <View style={styles.stepperValueBlock}>
+                <Text style={styles.stepperValueTitle}>
+                  {editorDraftDate
+                    ? formatSelectedDateLabel(formatDate(editorDraftDate), language)
+                    : editorDraft.scheduledAtInput}
+                </Text>
+              </View>
+
+              <Pressable
+                accessibilityLabel={t('calendar_next_day')}
+                disabled={
+                  !editorDraftDate ||
+                  formatDate(editorDraftDate) >= calendarRange.to
+                }
+                onPress={() => {
+                  updateEditorScheduledAt(currentValue => {
+                    return shiftDateTimeInput(currentValue, calendarRange, 1);
+                  });
+                }}
+                style={[
+                  styles.stepperButton,
+                  styles.stepperButtonNext,
+                  !editorDraftDate ||
+                  formatDate(editorDraftDate) >= calendarRange.to
+                    ? styles.stepperButtonDisabled
+                    : null,
+                ]}
+                testID="calendar-date-next-button"
+              >
+                <Text style={styles.stepperButtonLabel}>{'>'}</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.timeInputBlock}>
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                onChangeText={nextValue => {
+                  updateEditorScheduledAt(currentValue => {
+                    return replaceDateTimeInputTime(currentValue, nextValue);
+                  });
+                }}
+                placeholder="12:00"
+                placeholderTextColor={colors.textMuted}
+                style={[styles.input, styles.timeInput]}
+                testID="calendar-time-input"
+                value={editorDraftTimeInput}
+              />
+              <Text style={styles.fieldHint}>
+                {t('calendar_time_adjust_hint')}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {editorDraft.mode === 'create' ? (
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>{t('calendar_repeat')}</Text>
+            <View style={styles.optionRow}>
+              {(['none', 'weekly', 'monthly'] as const).map(
+                repeatFrequency => {
+                  const isActive =
+                    editorDraft.repeatFrequency === repeatFrequency;
+
+                  return (
+                    <Pressable
+                      key={repeatFrequency}
+                      onPress={() => {
+                        setEditorDraft(currentDraft => {
+                          if (!currentDraft) {
+                            return currentDraft;
+                          }
+
+                          return {
+                            ...currentDraft,
+                            repeatFrequency,
+                          };
+                        });
+                      }}
+                      style={[
+                        styles.optionChip,
+                        isActive ? styles.optionChipActive : null,
+                      ]}
+                      testID={`calendar-repeat-option-${repeatFrequency}`}
+                    >
+                      <Text
+                        style={[
+                          styles.optionChipLabel,
+                          isActive ? styles.optionChipLabelActive : null,
+                        ]}
+                      >
+                        {t(getRepeatFrequencyLabel(repeatFrequency))}
+                      </Text>
+                    </Pressable>
+                  );
+                },
+              )}
+            </View>
+            <Text style={styles.fieldHint}>{t('calendar_repeat_note')}</Text>
+          </View>
+        ) : null}
+
+        <View style={styles.fieldBlock}>
+          <Text style={styles.fieldLabel}>{t('calendar_reminder')}</Text>
+          <View style={styles.reminderOptionRow}>
+            {([null, 0, 60, 1440] as const).map((reminderMinutesBefore, index) => {
+              const reminderKey =
+                reminderMinutesBefore === null
+                  ? 'none'
+                  : String(reminderMinutesBefore);
+              const isActive =
+                editorDraft.reminderMinutesBefore === reminderMinutesBefore;
+
+              return (
+                <Pressable
+                  key={reminderKey}
+                  onPress={() => {
+                    setEditorDraft(currentDraft => {
+                      if (!currentDraft) {
+                        return currentDraft;
+                      }
+
+                      return {
+                        ...currentDraft,
+                        reminderMinutesBefore,
+                      };
+                    });
+                  }}
+                  style={[
+                    styles.reminderOptionChip,
+                    index > 0 ? styles.reminderOptionChipDivider : null,
+                    isActive ? styles.reminderOptionChipActive : null,
+                  ]}
+                  testID={`calendar-reminder-option-${reminderKey}`}
+                >
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
+                    numberOfLines={1}
+                    style={[
+                      styles.reminderOptionChipLabel,
+                      isActive ? styles.reminderOptionChipLabelActive : null,
+                    ]}
+                  >
+                    {t(getReminderMinutesBeforeLabel(reminderMinutesBefore))}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={styles.fieldHint}>{t('calendar_reminder_note')}</Text>
+        </View>
+      </View>
+
+      <View style={styles.editorPanel}>
+        <View style={styles.fieldBlock}>
+          <Text style={styles.fieldLabel}>{t('calendar_linked_place')}</Text>
+          <View style={styles.optionRow}>
+            <Pressable
+              onPress={() => {
+                setEditorDraft(currentDraft => {
+                  if (!currentDraft) {
+                    return currentDraft;
+                  }
+
+                  return {
+                    ...currentDraft,
+                    placeId: null,
+                  };
+                });
+              }}
+              style={[
+                styles.optionChip,
+                editorDraft.placeId === null ? styles.optionChipActive : null,
+              ]}
+              testID="calendar-place-option-none"
+            >
+              <Text
+                style={[
+                  styles.optionChipLabel,
+                  editorDraft.placeId === null
+                    ? styles.optionChipLabelActive
+                    : null,
+                ]}
+              >
+                {t('calendar_no_place')}
+              </Text>
+            </Pressable>
+
+            {savedPlaces.map(place => {
+              const isActive = editorDraft.placeId === place.id;
+
+              return (
+                <Pressable
+                  key={place.id}
+                  onPress={() => {
+                    setEditorDraft(currentDraft => {
+                      if (!currentDraft) {
+                        return currentDraft;
+                      }
+
+                      return {
+                        ...currentDraft,
+                        placeId: place.id,
+                      };
+                    });
+                  }}
+                  style={[
+                    styles.optionChip,
+                    isActive ? styles.optionChipActive : null,
+                  ]}
+                  testID={`calendar-place-option-${place.id}`}
+                >
+                  <Text
+                    style={[
+                      styles.optionChipLabel,
+                      isActive ? styles.optionChipLabelActive : null,
+                    ]}
+                  >
+                    {place.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.fieldBlock}>
+          <Text style={styles.fieldLabel}>{t('calendar_visit_status')}</Text>
+          <View style={styles.optionRow}>
+            {(['planned', 'visited', 'skipped'] as const).map(status => {
+              const isActive = editorDraft.visitStatus === status;
+
+              return (
+                <Pressable
+                  key={status}
+                  onPress={() => {
+                    setEditorDraft(currentDraft => {
+                      if (!currentDraft) {
+                        return currentDraft;
+                      }
+
+                      return {
+                        ...currentDraft,
+                        visitStatus: status,
+                      };
+                    });
+                  }}
+                  style={[
+                    styles.optionChip,
+                    isActive ? styles.optionChipActive : null,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.optionChipLabel,
+                      isActive ? styles.optionChipLabelActive : null,
+                    ]}
+                  >
+                    {t(getVisitStatusLabel(status))}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.editorPanel}>
+        <View style={styles.fieldBlock}>
+          <Text style={styles.fieldLabel}>{t('calendar_entry_detail')}</Text>
+          <TextInput
+            multiline
+            onChangeText={nextValue => {
               setEditorDraft(currentDraft => {
                 if (!currentDraft) {
                   return currentDraft;
@@ -418,127 +861,16 @@ export function CalendarScreen({
 
                 return {
                   ...currentDraft,
-                  placeId: null,
+                  memo: nextValue,
                 };
               });
             }}
-            style={[
-              styles.optionChip,
-              editorDraft.placeId === null ? styles.optionChipActive : null,
-            ]}
-            testID="calendar-place-option-none"
-          >
-            <Text
-              style={[
-                styles.optionChipLabel,
-                editorDraft.placeId === null
-                  ? styles.optionChipLabelActive
-                  : null,
-              ]}
-            >
-              {t('calendar_no_place')}
-            </Text>
-          </Pressable>
-
-          {savedPlaces.map(place => {
-            const isActive = editorDraft.placeId === place.id;
-
-            return (
-              <Pressable
-                key={place.id}
-                onPress={() => {
-                  setEditorDraft(currentDraft => {
-                    if (!currentDraft) {
-                      return currentDraft;
-                    }
-
-                    return {
-                      ...currentDraft,
-                      placeId: place.id,
-                    };
-                  });
-                }}
-                style={[
-                  styles.optionChip,
-                  isActive ? styles.optionChipActive : null,
-                ]}
-                testID={`calendar-place-option-${place.id}`}
-              >
-                <Text
-                  style={[
-                    styles.optionChipLabel,
-                    isActive ? styles.optionChipLabelActive : null,
-                  ]}
-                >
-                  {place.name}
-                </Text>
-              </Pressable>
-            );
-          })}
+            placeholder={t('calendar_body_placeholder')}
+            placeholderTextColor={colors.textMuted}
+            style={[styles.input, styles.memoInput]}
+            value={editorDraft.memo}
+          />
         </View>
-      </View>
-
-      <View style={styles.fieldBlock}>
-        <Text style={styles.fieldLabel}>{t('calendar_visit_status')}</Text>
-        <View style={styles.optionRow}>
-          {(['planned', 'visited', 'skipped'] as const).map(status => {
-            const isActive = editorDraft.visitStatus === status;
-
-            return (
-              <Pressable
-                key={status}
-                onPress={() => {
-                  setEditorDraft(currentDraft => {
-                    if (!currentDraft) {
-                      return currentDraft;
-                    }
-
-                    return {
-                      ...currentDraft,
-                      visitStatus: status,
-                    };
-                  });
-                }}
-                style={[
-                  styles.optionChip,
-                  isActive ? styles.optionChipActive : null,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.optionChipLabel,
-                    isActive ? styles.optionChipLabelActive : null,
-                  ]}
-                >
-                  {t(getVisitStatusLabel(status))}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </View>
-
-      <View style={styles.fieldBlock}>
-        <Text style={styles.fieldLabel}>{t('calendar_entry_detail')}</Text>
-        <TextInput
-          multiline
-          onChangeText={nextValue => {
-            setEditorDraft(currentDraft => {
-              if (!currentDraft) {
-                return currentDraft;
-              }
-
-              return {
-                ...currentDraft,
-                memo: nextValue,
-              };
-            });
-          }}
-          placeholder={t('calendar_body_placeholder')}
-          placeholderTextColor={colors.textMuted}
-          style={[styles.input, styles.memoInput]}
-          value={editorDraft.memo}
-        />
       </View>
 
       <View style={styles.editorActions}>
@@ -608,13 +940,14 @@ export function CalendarScreen({
           </Text>
         </View>
         <Pressable
+          accessibilityLabel={t('calendar_new')}
           onPress={() => {
             handleOpenCreateDraft().catch(() => undefined);
           }}
           style={styles.newButton}
           testID="calendar-new-button"
         >
-          <Text style={styles.newButtonLabel}>{t('calendar_new')}</Text>
+          <Text style={styles.newButtonLabel}>+</Text>
         </Pressable>
       </View>
 
@@ -693,12 +1026,6 @@ export function CalendarScreen({
               {t('calendar_day_detail_back')}
             </Text>
           </Pressable>
-          <Text style={styles.dayDetailTitle}>
-            {formatSelectedDateLabel(selectedDate, language)}
-          </Text>
-          <Text style={styles.dayDetailMeta}>
-            {t('calendar_entries_count', { count: selectedSchedules.length })}
-          </Text>
         </View>
 
         {agendaSection}
@@ -720,114 +1047,131 @@ export function CalendarScreen({
         <Text style={styles.screenTitle}>{t('screen_calendar')}</Text>
       </View>
 
-      {agendaSection}
+      <View style={styles.monthBoard}>
+        <Text style={styles.monthBoardTitle} testID="calendar-month-title">
+          {visibleMonth.label}
+        </Text>
 
-      <View style={styles.monthsSection}>
-        {calendarMonths.map((month, monthIndex) => (
-          <View
-            key={month.key}
-            style={[
-              styles.monthSection,
-              monthIndex === 0 ? styles.monthSectionFirst : null,
-            ]}
-          >
-            <Text style={styles.monthTitle}>{month.label}</Text>
+        <ScrollView
+          contentOffset={{ x: visibleMonthIndex * monthPageWidth, y: 0 }}
+          decelerationRate="fast"
+          horizontal
+          onMomentumScrollEnd={handleMonthPagerMomentumEnd}
+          pagingEnabled
+          ref={monthPagerRef}
+          showsHorizontalScrollIndicator={false}
+          snapToAlignment="start"
+          testID="calendar-month-pager"
+        >
+          {calendarMonths.map(month => (
+            <View
+              key={month.key}
+              style={[styles.monthPage, { width: monthPageWidth }]}
+              testID={`calendar-month-page-${month.key}`}
+            >
+              <View style={styles.weekdayRow}>
+                {weekdayLabels.map((label, index) => (
+                  <Text
+                    key={`${month.key}-${label}`}
+                    style={[
+                      styles.weekdayLabel,
+                      index === 0 ? styles.weekdayLabelSunday : null,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                ))}
+              </View>
 
-            <View style={styles.weekdayRow}>
-              {weekdayLabels.map((label, index) => (
-                <Text
-                  key={`${month.key}-${label}`}
-                  style={[
-                    styles.weekdayLabel,
-                    index === 0 ? styles.weekdayLabelSunday : null,
-                  ]}
-                >
-                  {label}
-                </Text>
-              ))}
-            </View>
+              {month.weeks.map((week, weekIndex) => (
+                <View key={`${month.key}-${weekIndex}`} style={styles.weekRow}>
+                  {week.map(day => {
+                    const daySchedules = schedulesByDate[day.dateKey] ?? [];
+                    const entryCount = daySchedules.length;
+                    const isSelected =
+                      day.dateKey === selectedDate &&
+                      hasExplicitDateSelection;
+                    const isToday = day.dateKey === todayKey;
+                    const previewLabel = day.inCurrentMonth
+                      ? getDayPreviewLabel(daySchedules)
+                      : null;
 
-            {month.weeks.map((week, weekIndex) => (
-              <View key={`${month.key}-${weekIndex}`} style={styles.weekRow}>
-                {week.map(day => {
-                  const daySchedules = schedulesByDate[day.dateKey] ?? [];
-                  const entryCount = daySchedules.length;
-                  const isSelected = day.dateKey === selectedDate;
-                  const previewLabel = day.inCurrentMonth
-                    ? getDayPreviewLabel(daySchedules)
-                    : null;
-
-                  return (
-                    <Pressable
-                      accessibilityHint={
-                        entryCount > 0
-                          ? t('calendar_entries_count', { count: entryCount })
-                          : undefined
-                      }
-                      accessibilityState={{ selected: isSelected }}
-                      key={day.dateKey}
-                      disabled={!day.inCurrentMonth}
-                      onPress={() => {
-                        handleOpenDayDetail(day.dateKey);
-                      }}
-                      style={styles.dayCell}
-                      testID={`calendar-day-${day.dateKey}`}
-                    >
-                      <View
-                        style={[
-                          styles.dayNumberWrap,
-                          isSelected ? styles.dayNumberWrapSelected : null,
-                        ]}
+                    return (
+                      <Pressable
+                        accessibilityHint={
+                          entryCount > 0
+                            ? t('calendar_entries_count', { count: entryCount })
+                            : undefined
+                        }
+                        accessibilityState={{ selected: isSelected }}
+                        key={day.dateKey}
+                        disabled={!day.inCurrentMonth}
+                        onPress={() => {
+                          handleSelectDate(day.dateKey);
+                        }}
+                        style={styles.dayCell}
+                        testID={`calendar-day-${day.dateKey}`}
                       >
-                        <Text
+                        <View
                           style={[
-                            styles.dayNumber,
-                            day.isSunday ? styles.dayNumberSunday : null,
-                            day.isSaturday ? styles.dayNumberSaturday : null,
-                            !day.inCurrentMonth ? styles.dayNumberMuted : null,
-                            isSelected ? styles.dayNumberSelected : null,
+                            styles.dayNumberWrap,
+                            isToday ? styles.dayNumberWrapToday : null,
+                            isSelected ? styles.dayNumberWrapSelected : null,
                           ]}
                         >
-                          {day.dayNumber}
-                        </Text>
-                      </View>
-                      {entryCount > 0 && day.inCurrentMonth ? (
-                        previewLabel ? (
-                          <View
+                          <Text
                             style={[
-                              styles.dayPreviewChip,
-                              isSelected ? styles.dayPreviewChipSelected : null,
+                              styles.dayNumber,
+                              day.isSunday ? styles.dayNumberSunday : null,
+                              day.isSaturday ? styles.dayNumberSaturday : null,
+                              !day.inCurrentMonth ? styles.dayNumberMuted : null,
+                              isToday ? styles.dayNumberToday : null,
+                              isSelected ? styles.dayNumberSelected : null,
                             ]}
                           >
-                            <Text
-                              numberOfLines={1}
+                            {day.dayNumber}
+                          </Text>
+                        </View>
+                        {entryCount > 0 && day.inCurrentMonth ? (
+                          previewLabel ? (
+                            <View
                               style={[
-                                styles.dayPreviewText,
+                                styles.dayPreviewChip,
                                 isSelected
-                                  ? styles.dayPreviewTextSelected
+                                  ? styles.dayPreviewChipSelected
                                   : null,
                               ]}
-                              testID={`calendar-day-preview-${day.dateKey}`}
                             >
-                              {previewLabel}
-                            </Text>
-                          </View>
-                        ) : (
-                          <View
-                            style={[
-                              styles.entryDot,
-                              isSelected ? styles.entryDotSelected : null,
-                            ]}
-                          />
-                        )
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ))}
-          </View>
-        ))}
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  styles.dayPreviewText,
+                                  isSelected
+                                    ? styles.dayPreviewTextSelected
+                                    : null,
+                                ]}
+                                testID={`calendar-day-preview-${day.dateKey}`}
+                              >
+                                {previewLabel}
+                              </Text>
+                            </View>
+                          ) : (
+                            <View
+                              style={[
+                                styles.entryDot,
+                                isSelected ? styles.entryDotSelected : null,
+                              ]}
+                            />
+                          )
+                        ) : null}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          ))}
+        </ScrollView>
       </View>
     </ScrollView>
   );
@@ -853,6 +1197,26 @@ function getMonthSpan(
   endMonthIndex: number,
 ): number {
   return (endYear - startYear) * 12 + (endMonthIndex - startMonthIndex) + 1;
+}
+
+function getMonthIndexForDateKey(
+  config: CalendarConfig,
+  dateKey: string,
+): number {
+  const parsedDate = new Date(`${dateKey}T00:00:00`);
+  const monthIndex =
+    (parsedDate.getFullYear() - config.startYear) * 12 +
+    (parsedDate.getMonth() - config.startMonthIndex);
+
+  if (monthIndex < 0) {
+    return 0;
+  }
+
+  if (monthIndex >= config.monthCount) {
+    return config.monthCount - 1;
+  }
+
+  return monthIndex;
 }
 
 function buildCalendarMonths(
@@ -1014,6 +1378,42 @@ function getVisitStatusLabel(
   }
 }
 
+function getRepeatFrequencyLabel(
+  repeatFrequency: ScheduleRepeatFrequency,
+):
+  | 'calendar_repeat_none'
+  | 'calendar_repeat_weekly'
+  | 'calendar_repeat_monthly' {
+  switch (repeatFrequency) {
+    case 'none':
+      return 'calendar_repeat_none';
+    case 'weekly':
+      return 'calendar_repeat_weekly';
+    case 'monthly':
+      return 'calendar_repeat_monthly';
+  }
+}
+
+function getReminderMinutesBeforeLabel(
+  reminderMinutesBefore: ScheduleReminderMinutesBefore | null,
+):
+  | 'calendar_reminder_none'
+  | 'calendar_reminder_at_time'
+  | 'calendar_reminder_one_hour'
+  | 'calendar_reminder_one_day' {
+  switch (reminderMinutesBefore) {
+    case 0:
+      return 'calendar_reminder_at_time';
+    case 60:
+      return 'calendar_reminder_one_hour';
+    case 1440:
+      return 'calendar_reminder_one_day';
+    case null:
+    default:
+      return 'calendar_reminder_none';
+  }
+}
+
 function getDayPreviewLabel(schedules: ScheduleSummary[]): string | null {
   const firstSchedule = schedules[0];
 
@@ -1044,21 +1444,29 @@ function buildSelectedDateDraft(dateKey: string): string {
   return `${dateKey} 12:00`;
 }
 
-function parseDateTimeInput(value: string): string | null {
+function extractDatePart(value: string): string {
+  return value.trim().split(/\s+/, 2)[0] ?? '';
+}
+
+function extractTimePart(value: string): string {
+  return value.trim().split(/\s+/, 2)[1] ?? '';
+}
+
+function parseDateInputValue(value: string): Date | null {
   const trimmedValue = value.trim();
-  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(trimmedValue);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmedValue);
 
   if (!match) {
     return null;
   }
 
-  const [, year, month, day, hour, minute] = match;
+  const [, year, month, day] = match;
   const parsedDate = new Date(
     Number(year),
     Number(month) - 1,
     Number(day),
-    Number(hour),
-    Number(minute),
+    0,
+    0,
     0,
     0,
   );
@@ -1067,7 +1475,80 @@ function parseDateTimeInput(value: string): string | null {
     return null;
   }
 
+  return parsedDate;
+}
+
+function parseDateTimeValue(value: string): Date | null {
+  const datePart = extractDatePart(value);
+  const timePart = extractTimePart(value);
+  const parsedDate = parseDateInputValue(datePart);
+  const timeMatch = /^(\d{2}):(\d{2})$/.exec(timePart);
+
+  if (!parsedDate || !timeMatch) {
+    return null;
+  }
+
+  const [, hour, minute] = timeMatch;
+  parsedDate.setHours(Number(hour), Number(minute), 0, 0);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return null;
+  }
+
+  return parsedDate;
+}
+
+function parseDateTimeInput(value: string): string | null {
+  const parsedDate = parseDateTimeValue(value);
+
+  if (!parsedDate) {
+    return null;
+  }
+
   return parsedDate.toISOString();
+}
+
+function shiftDateTimeInput(
+  value: string,
+  range: { from: string; to: string },
+  dayDelta: number,
+): string | null {
+  const parsedDate = parseDateInputValue(extractDatePart(value));
+  const currentTimePart = extractTimePart(value) || '12:00';
+
+  if (!parsedDate) {
+    return null;
+  }
+
+  const nextDate = new Date(parsedDate);
+  nextDate.setDate(nextDate.getDate() + dayDelta);
+
+  return `${formatDate(clampDateToRange(nextDate, range))} ${currentTimePart}`;
+}
+
+function replaceDateTimeInputTime(value: string, nextTime: string): string {
+  const currentDatePart = extractDatePart(value);
+
+  if (!currentDatePart) {
+    return nextTime;
+  }
+
+  return `${currentDatePart} ${nextTime}`;
+}
+
+function clampDateToRange(
+  date: Date,
+  range: { from: string; to: string },
+): Date {
+  if (formatDate(date) < range.from) {
+    return new Date(`${range.from}T00:00:00`);
+  }
+
+  if (formatDate(date) > range.to) {
+    return new Date(`${range.to}T00:00:00`);
+  }
+
+  return date;
 }
 
 function normalizeMemo(value: string): string | null {
@@ -1121,6 +1602,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: -0.6,
     lineHeight: 30,
+  },
+  monthBoard: {
+    borderTopColor: journalTokens.color.rule,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 16,
+    paddingTop: 18,
+  },
+  monthBoardTitle: {
+    color: journalTokens.color.textStrong,
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: -0.3,
+    lineHeight: 24,
+  },
+  monthPage: {
+    gap: 16,
+    paddingRight: 12,
   },
   monthsSection: {
     gap: 18,
@@ -1177,9 +1675,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   dayNumberWrapSelected: {
-    backgroundColor: journalTokens.color.accentSoft,
-    borderColor: journalTokens.color.ruleStrong,
+    backgroundColor: journalTokens.color.accent,
+    borderColor: journalTokens.color.accent,
     borderWidth: 1,
+  },
+  dayNumberWrapToday: {
+    borderColor: journalTokens.color.ruleStrong,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   dayNumber: {
     color: journalTokens.color.textPrimary,
@@ -1187,8 +1689,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: -0.3,
   },
-  dayNumberSelected: {
+  dayNumberToday: {
     color: journalTokens.color.textStrong,
+  },
+  dayNumberSelected: {
+    color: journalTokens.color.inverseText,
   },
   dayNumberMuted: {
     color: '#CEC8BE',
@@ -1231,8 +1736,20 @@ const styles = StyleSheet.create({
   agendaSection: {
     gap: 16,
   },
+  monthAgendaPlaceholder: {
+    backgroundColor: journalTokens.color.pageSurface,
+    borderColor: journalTokens.color.rule,
+    borderRadius: journalTokens.radius.medium,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
+  monthAgendaPlaceholderText: {
+    color: journalTokens.color.textSecondary,
+    fontSize: 14,
+    lineHeight: 21,
+  },
   dayDetailIntro: {
-    gap: 6,
     paddingTop: 2,
   },
   backButton: {
@@ -1253,18 +1770,6 @@ const styles = StyleSheet.create({
     color: journalTokens.color.textSecondary,
     fontSize: 12,
     fontWeight: '600',
-  },
-  dayDetailTitle: {
-    color: journalTokens.color.textStrong,
-    fontSize: 26,
-    fontWeight: '600',
-    letterSpacing: -0.8,
-    lineHeight: 32,
-  },
-  dayDetailMeta: {
-    color: journalTokens.color.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
   },
   agendaHeader: {
     alignItems: 'flex-end',
@@ -1290,18 +1795,18 @@ const styles = StyleSheet.create({
   },
   newButton: {
     alignItems: 'center',
-    backgroundColor: journalTokens.color.pageSurface,
-    borderColor: journalTokens.color.ruleStrong,
+    backgroundColor: journalTokens.color.accent,
     borderRadius: journalTokens.radius.round,
-    borderWidth: StyleSheet.hairlineWidth,
+    height: 40,
     justifyContent: 'center',
-    minHeight: 36,
-    paddingHorizontal: 14,
+    width: 40,
   },
   newButtonLabel: {
-    color: journalTokens.color.textPrimary,
-    fontSize: 12,
+    color: journalTokens.color.inverseText,
+    fontSize: 24,
     fontWeight: '600',
+    lineHeight: 24,
+    marginTop: -2,
   },
   feedback: {
     color: journalTokens.color.textSecondary,
@@ -1364,70 +1869,192 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   editorSection: {
+    backgroundColor: journalTokens.color.pageSurface,
+    borderColor: journalTokens.color.rule,
     borderTopColor: journalTokens.color.rule,
     borderTopWidth: StyleSheet.hairlineWidth,
-    gap: 16,
-    paddingTop: 18,
+    borderRadius: journalTokens.radius.medium,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 14,
+    marginTop: 6,
+    padding: 16,
+  },
+  editorHero: {
+    backgroundColor: journalTokens.color.accentSoft,
+    borderColor: journalTokens.color.rule,
+    borderRadius: journalTokens.radius.soft,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 10,
+    padding: 16,
   },
   editorHeader: {
-    gap: 0,
+    gap: 4,
+  },
+  editorEyebrow: {
+    color: journalTokens.color.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   editorMetaPreview: {
-    color: journalTokens.color.textMuted,
-    fontSize: 12,
+    color: journalTokens.color.textSecondary,
+    fontSize: 13,
     lineHeight: 18,
   },
   entryTitleInput: {
     color: journalTokens.color.textStrong,
-    fontSize: 24,
+    fontSize: 23,
     fontWeight: '600',
     letterSpacing: -0.6,
     lineHeight: 30,
     paddingHorizontal: 0,
     paddingVertical: 0,
   },
+  editorPanel: {
+    backgroundColor: journalTokens.color.pageBackground,
+    borderColor: journalTokens.color.rule,
+    borderRadius: journalTokens.radius.soft,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 14,
+    padding: 14,
+  },
   fieldBlock: {
-    gap: 8,
+    gap: 10,
   },
   fieldLabel: {
     color: journalTokens.color.textMuted,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
-    letterSpacing: 0.4,
+    letterSpacing: 0.3,
     textTransform: 'uppercase',
   },
+  fieldHint: {
+    color: journalTokens.color.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
   input: {
-    backgroundColor: 'transparent',
-    borderBottomColor: journalTokens.color.rule,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    backgroundColor: journalTokens.color.pageSurface,
+    borderColor: journalTokens.color.ruleStrong,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
     color: journalTokens.color.textPrimary,
     fontSize: 15,
+    lineHeight: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  dateTimeControlStack: {
+    gap: 10,
+  },
+  dateSelector: {
+    alignItems: 'center',
+    backgroundColor: journalTokens.color.pageSurface,
+    borderColor: journalTokens.color.ruleStrong,
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
+    minHeight: 56,
+    padding: 10,
+    position: 'relative',
+  },
+  stepperButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 34,
+    minWidth: 24,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
+    position: 'absolute',
+    top: 10,
+  },
+  stepperButtonPrev: {
+    left: 12,
+  },
+  stepperButtonNext: {
+    right: 12,
+  },
+  stepperButtonDisabled: {
+    opacity: 0.4,
+  },
+  stepperButtonLabel: {
+    color: journalTokens.color.textPrimary,
+    fontSize: 24,
+    fontWeight: '600',
+    lineHeight: 24,
+  },
+  stepperValueBlock: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 40,
+  },
+  stepperValueTitle: {
+    color: journalTokens.color.textStrong,
+    fontSize: 15,
+    fontWeight: '600',
     lineHeight: 20,
-    paddingHorizontal: 0,
-    paddingBottom: 10,
-    paddingTop: 6,
+    textAlign: 'center',
+  },
+  stepperValueMeta: {
+    color: journalTokens.color.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  timeInputBlock: {
+    gap: 8,
+  },
+  timeInput: {
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: -0.3,
+    lineHeight: 22,
+    textAlign: 'center',
   },
   memoInput: {
-    borderBottomWidth: 0,
-    fontSize: 16,
-    lineHeight: 30,
-    minHeight: 180,
-    paddingBottom: 0,
-    paddingTop: 10,
+    fontSize: 15,
+    lineHeight: 24,
+    minHeight: 132,
+    paddingBottom: 14,
+    paddingTop: 14,
     textAlignVertical: 'top',
   },
   optionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
+  },
+  reminderOptionRow: {
+    backgroundColor: journalTokens.color.pageSubtle,
+    borderColor: journalTokens.color.ruleStrong,
+    borderRadius: journalTokens.radius.soft,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    overflow: 'hidden',
+  },
+  reminderOptionChip: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    minWidth: 0,
+    minHeight: 46,
+    paddingHorizontal: 6,
+    paddingVertical: 10,
+  },
+  reminderOptionChipDivider: {
+    borderLeftColor: journalTokens.color.rule,
+    borderLeftWidth: StyleSheet.hairlineWidth,
   },
   optionChip: {
     backgroundColor: journalTokens.color.pageSurface,
     borderColor: journalTokens.color.ruleStrong,
     borderRadius: journalTokens.radius.round,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 12,
+    paddingHorizontal: 13,
     paddingVertical: 10,
+  },
+  reminderOptionChipActive: {
+    backgroundColor: journalTokens.color.accent,
   },
   optionChipActive: {
     backgroundColor: journalTokens.color.accentSoft,
@@ -1438,13 +2065,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
   },
+  reminderOptionChipLabel: {
+    color: journalTokens.color.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  reminderOptionChipLabelActive: {
+    color: journalTokens.color.inverseText,
+  },
   optionChipLabelActive: {
     color: journalTokens.color.textPrimary,
   },
   editorActions: {
     flexDirection: 'row',
     gap: 10,
-    paddingTop: 8,
+    paddingTop: 2,
   },
   saveButton: {
     alignItems: 'center',

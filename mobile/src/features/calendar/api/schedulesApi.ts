@@ -1,6 +1,12 @@
 import type { RequestOptions } from '../../../shared/api/http';
 
-import type { ScheduleDetail, ScheduleSummary, ScheduleVisitStatus } from '../types';
+import type {
+  ScheduleDetail,
+  ScheduleRepeatFrequency,
+  ScheduleReminderMinutesBefore,
+  ScheduleSummary,
+  ScheduleVisitStatus,
+} from '../types';
 
 type AuthorizedRequest = <T>(
   path: string,
@@ -12,6 +18,8 @@ type ScheduleInput = {
   scheduledAt: string;
   memo: string | null;
   placeId: string | null;
+  repeatFrequency?: ScheduleRepeatFrequency;
+  reminderMinutesBefore?: ScheduleReminderMinutesBefore | null;
 };
 
 export async function listSchedules(
@@ -40,7 +48,7 @@ export async function getSchedule(
 export async function createSchedule(
   authorizedRequest: AuthorizedRequest,
   input: ScheduleInput,
-): Promise<{ id: string }> {
+): Promise<{ id: string; createdCount: number }> {
   return authorizedRequest('/schedules', {
     method: 'POST',
     body: input,
@@ -64,6 +72,7 @@ export async function updateSchedule(
       scheduledAt: input.scheduledAt,
       memo: input.memo,
       placeId: input.placeId,
+      reminderMinutesBefore: input.reminderMinutesBefore,
       visitStatus: input.visitStatus,
     },
   });

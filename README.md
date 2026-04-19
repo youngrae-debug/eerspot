@@ -94,8 +94,8 @@ v1 기본 지도 provider는 **Kakao**입니다.
 - Zod
 
 ### Storage
-- 현재 서버 저장소는 in-memory 구현
-- 추후 DB 연동 예정
+- 서버는 기본적으로 SQLite(`server/data/eerspot.sqlite`)에 영속 저장
+- 테스트 환경에서는 기존처럼 in-memory 저장소 사용
 
 ---
 
@@ -113,6 +113,7 @@ MAP_PROVIDER=kakao
 KAKAO_REST_API_KEY=your_kakao_rest_api_key
 LOG_LEVEL=info
 CORS_ORIGIN=*
+DATABASE_PATH=./server/data/eerspot.sqlite
 ```
 
 ### Mobile

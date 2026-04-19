@@ -5,6 +5,12 @@ import type { AuthService } from '../auth/service.js';
 import type { SchedulesService } from './service.js';
 
 const scheduleVisitStatusSchema = z.enum(['planned', 'visited', 'skipped']);
+const scheduleRepeatFrequencySchema = z.enum(['none', 'weekly', 'monthly']);
+const scheduleReminderMinutesBeforeSchema = z.union([
+  z.literal(0),
+  z.literal(60),
+  z.literal(1440),
+]);
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -17,6 +23,10 @@ const createScheduleSchema = z.object({
   scheduledAt: datetimeSchema,
   memo: z.union([z.string(), z.null()]).optional(),
   placeId: z.union([z.string().uuid(), z.null()]).optional(),
+  repeatFrequency: scheduleRepeatFrequencySchema.optional(),
+  reminderMinutesBefore: z
+    .union([scheduleReminderMinutesBeforeSchema, z.null()])
+    .optional(),
 });
 
 const updateScheduleSchema = z
@@ -25,6 +35,9 @@ const updateScheduleSchema = z
     scheduledAt: datetimeSchema.optional(),
     memo: z.union([z.string(), z.null()]).optional(),
     placeId: z.union([z.string().uuid(), z.null()]).optional(),
+    reminderMinutesBefore: z
+      .union([scheduleReminderMinutesBeforeSchema, z.null()])
+      .optional(),
     visitStatus: scheduleVisitStatusSchema.optional(),
   })
   .refine(
@@ -33,6 +46,7 @@ const updateScheduleSchema = z
       body.scheduledAt !== undefined ||
       body.memo !== undefined ||
       body.placeId !== undefined ||
+      body.reminderMinutesBefore !== undefined ||
       body.visitStatus !== undefined,
     {
       message: 'at least one field is required',

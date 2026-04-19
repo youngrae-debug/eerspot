@@ -1,12 +1,20 @@
 import { AppError } from '../../lib/http/errors.js';
 import type { PlacesService } from '../places/service.js';
 
-import { InMemorySchedulesRepository } from './repository.js';
-import type { ScheduleListItem, ScheduleRecord, ScheduleVisitStatus } from './types.js';
+import type { SchedulesRepository } from './repository.js';
+import type {
+  ScheduleListItem,
+  ScheduleRecord,
+  ScheduleRepeatFrequency,
+  ScheduleReminderMinutesBefore,
+  ScheduleVisitStatus,
+} from './types.js';
+
+const RECURRING_SERIES_END = '2028-12-31T23:59:59.999Z';
 
 export class SchedulesService {
   constructor(
-    private readonly repository: InMemorySchedulesRepository,
+    private readonly repository: SchedulesRepository,
     private readonly placesService: PlacesService,
   ) {}
 
@@ -16,20 +24,42 @@ export class SchedulesService {
     memo?: string | null;
     scheduledAt: string;
     placeId?: string | null;
-  }): Promise<{ id: string }> {
+    repeatFrequency?: ScheduleRepeatFrequency;
+    reminderMinutesBefore?: ScheduleReminderMinutesBefore | null;
+  }): Promise<{ id: string; createdCount: number }> {
     if (input.placeId) {
       await this.placesService.getPlace(input.userId, input.placeId);
     }
 
-    const schedule = this.repository.create({
+    const normalizedMemo = normalizeMemo(input.memo);
+    const scheduledAtValues = buildScheduleSeries(
+      input.scheduledAt,
+      input.repeatFrequency ?? 'none',
+    );
+    const firstSchedule = this.repository.create({
       userId: input.userId,
       title: input.title,
-      memo: normalizeMemo(input.memo),
-      scheduledAt: input.scheduledAt,
+      memo: normalizedMemo,
+      scheduledAt: scheduledAtValues[0],
       placeId: input.placeId ?? null,
+      reminderMinutesBefore: input.reminderMinutesBefore ?? null,
     });
 
-    return { id: schedule.id };
+    scheduledAtValues.slice(1).forEach(scheduledAt => {
+      this.repository.create({
+        userId: input.userId,
+        title: input.title,
+        memo: normalizedMemo,
+        scheduledAt,
+        placeId: input.placeId ?? null,
+        reminderMinutesBefore: input.reminderMinutesBefore ?? null,
+      });
+    });
+
+    return {
+      id: firstSchedule.id,
+      createdCount: scheduledAtValues.length,
+    };
   }
 
   async listSchedules(input: {
@@ -54,6 +84,7 @@ export class SchedulesService {
     title: string;
     memo: string | null;
     scheduledAt: string;
+    reminderMinutesBefore: ScheduleReminderMinutesBefore | null;
     visitStatus: ScheduleVisitStatus;
     placeId: string | null;
   }> {
@@ -67,6 +98,7 @@ export class SchedulesService {
     memo?: string | null;
     scheduledAt?: string;
     placeId?: string | null;
+    reminderMinutesBefore?: ScheduleReminderMinutesBefore | null;
     visitStatus?: ScheduleVisitStatus;
   }): Promise<{ id: string; updated: true }> {
     this.getOwnedSchedule(input.userId, input.scheduleId);
@@ -82,6 +114,9 @@ export class SchedulesService {
         ? { scheduledAt: input.scheduledAt }
         : {}),
       ...(input.placeId !== undefined ? { placeId: input.placeId } : {}),
+      ...(input.reminderMinutesBefore !== undefined
+        ? { reminderMinutesBefore: input.reminderMinutesBefore }
+        : {}),
       ...(input.visitStatus !== undefined
         ? { visitStatus: input.visitStatus }
         : {}),
@@ -152,6 +187,80 @@ function normalizeMemo(memo: string | null | undefined): string | null {
   return trimmedMemo ? trimmedMemo : null;
 }
 
+function buildScheduleSeries(
+  scheduledAt: string,
+  repeatFrequency: ScheduleRepeatFrequency,
+): string[] {
+  const baseDate = new Date(scheduledAt);
+
+  if (Number.isNaN(baseDate.getTime())) {
+    throw new AppError(400, 'VALIDATION_ERROR', 'invalid datetime');
+  }
+
+  if (repeatFrequency === 'none') {
+    return [baseDate.toISOString()];
+  }
+
+  const seriesEnd = new Date(RECURRING_SERIES_END);
+
+  if (baseDate > seriesEnd) {
+    return [baseDate.toISOString()];
+  }
+
+  const occurrences: string[] = [];
+  const preferredDayOfMonth = baseDate.getUTCDate();
+  let cursor = new Date(baseDate);
+
+  while (cursor <= seriesEnd) {
+    occurrences.push(cursor.toISOString());
+    cursor =
+      repeatFrequency === 'weekly'
+        ? addWeeksUtc(cursor, 1)
+        : addMonthsUtc(cursor, 1, preferredDayOfMonth);
+  }
+
+  return occurrences;
+}
+
+function addWeeksUtc(date: Date, weeks: number): Date {
+  return new Date(date.getTime() + weeks * 7 * 24 * 60 * 60 * 1000);
+}
+
+function addMonthsUtc(
+  date: Date,
+  months: number,
+  preferredDayOfMonth: number,
+): Date {
+  const targetMonthStart = new Date(
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth() + months,
+      1,
+      date.getUTCHours(),
+      date.getUTCMinutes(),
+      date.getUTCSeconds(),
+      date.getUTCMilliseconds(),
+    ),
+  );
+  const targetYear = targetMonthStart.getUTCFullYear();
+  const targetMonthIndex = targetMonthStart.getUTCMonth();
+  const lastDayOfTargetMonth = new Date(
+    Date.UTC(targetYear, targetMonthIndex + 1, 0),
+  ).getUTCDate();
+
+  return new Date(
+    Date.UTC(
+      targetYear,
+      targetMonthIndex,
+      Math.min(preferredDayOfMonth, lastDayOfTargetMonth),
+      date.getUTCHours(),
+      date.getUTCMinutes(),
+      date.getUTCSeconds(),
+      date.getUTCMilliseconds(),
+    ),
+  );
+}
+
 function toListItem(schedule: ScheduleRecord): ScheduleListItem {
   return {
     id: schedule.id,
@@ -159,6 +268,7 @@ function toListItem(schedule: ScheduleRecord): ScheduleListItem {
     scheduledAt: schedule.scheduledAt,
     visitStatus: schedule.visitStatus,
     placeId: schedule.placeId,
+    reminderMinutesBefore: schedule.reminderMinutesBefore,
   };
 }
 
@@ -168,6 +278,7 @@ function toDetailItem(schedule: ScheduleRecord) {
     title: schedule.title,
     memo: schedule.memo,
     scheduledAt: schedule.scheduledAt,
+    reminderMinutesBefore: schedule.reminderMinutesBefore,
     visitStatus: schedule.visitStatus,
     placeId: schedule.placeId,
   };

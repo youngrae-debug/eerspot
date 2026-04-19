@@ -100,6 +100,7 @@ test('schedules flow supports create, list, detail, update, and soft delete', as
       scheduledAt: '2026-03-21T09:00:00Z',
       memo: '늦지 않기',
       placeId,
+      reminderMinutesBefore: 60,
     },
   });
 
@@ -115,6 +116,7 @@ test('schedules flow supports create, list, detail, update, and soft delete', as
   assert.equal(listResponse.statusCode, 200);
   assert.equal(listResponse.json().data.items.length, 1);
   assert.equal(listResponse.json().data.items[0].placeId, placeId);
+  assert.equal(listResponse.json().data.items[0].reminderMinutesBefore, 60);
 
   const detailResponse = await app.inject({
     method: 'GET',
@@ -124,6 +126,7 @@ test('schedules flow supports create, list, detail, update, and soft delete', as
 
   assert.equal(detailResponse.statusCode, 200);
   assert.equal(detailResponse.json().data.memo, '늦지 않기');
+  assert.equal(detailResponse.json().data.reminderMinutesBefore, 60);
 
   const updateResponse = await app.inject({
     method: 'PATCH',
@@ -134,6 +137,7 @@ test('schedules flow supports create, list, detail, update, and soft delete', as
       visitStatus: 'visited',
       placeId: null,
       memo: '도착 완료',
+      reminderMinutesBefore: 0,
     },
   });
 
@@ -149,6 +153,7 @@ test('schedules flow supports create, list, detail, update, and soft delete', as
   assert.equal(updatedDetailResponse.json().data.title, '저녁 약속(수정)');
   assert.equal(updatedDetailResponse.json().data.visitStatus, 'visited');
   assert.equal(updatedDetailResponse.json().data.placeId, null);
+  assert.equal(updatedDetailResponse.json().data.reminderMinutesBefore, 0);
 
   const deleteResponse = await app.inject({
     method: 'DELETE',
@@ -216,6 +221,61 @@ test('schedules reject linking a place owned by another user', async () => {
   });
 
   assert.equal(unknownPlaceResponse.statusCode, 404);
+
+  await app.close();
+});
+
+test('schedules can create weekly recurring entries inside the calendar range', async () => {
+  const app = createTestApp();
+  const headers = await createAuthenticatedHeader(app, {
+    email: 'repeat@example.com',
+    password: 'Secret123!',
+  });
+
+  const createResponse = await app.inject({
+    method: 'POST',
+    url: '/api/v1/schedules',
+    headers,
+    payload: {
+      title: '매주 커피',
+      scheduledAt: '2026-03-21T09:00:00Z',
+      repeatFrequency: 'weekly',
+    },
+  });
+
+  assert.equal(createResponse.statusCode, 201);
+  assert.equal(createResponse.json().data.id.length > 0, true);
+  assert.equal(createResponse.json().data.createdCount > 1, true);
+
+  const marchListResponse = await app.inject({
+    method: 'GET',
+    url: '/api/v1/schedules?from=2026-03-01&to=2026-03-31',
+    headers,
+  });
+
+  assert.equal(marchListResponse.statusCode, 200);
+  assert.equal(marchListResponse.json().data.items.length, 2);
+  assert.equal(
+    marchListResponse.json().data.items[0].scheduledAt,
+    '2026-03-21T09:00:00.000Z',
+  );
+  assert.equal(
+    marchListResponse.json().data.items[1].scheduledAt,
+    '2026-03-28T09:00:00.000Z',
+  );
+
+  const aprilListResponse = await app.inject({
+    method: 'GET',
+    url: '/api/v1/schedules?from=2026-04-01&to=2026-04-30',
+    headers,
+  });
+
+  assert.equal(aprilListResponse.statusCode, 200);
+  assert.equal(aprilListResponse.json().data.items.length, 4);
+  assert.equal(
+    aprilListResponse.json().data.items[0].scheduledAt,
+    '2026-04-04T09:00:00.000Z',
+  );
 
   await app.close();
 });

@@ -52,7 +52,10 @@ const catalogSeed: Array<{
 
 type KakaoKeywordSearchResponse = {
   documents: Array<{
+    category_group_name?: string;
+    category_name?: string;
     id: string;
+    phone?: string;
     place_name: string;
     address_name: string;
     place_url?: string;
@@ -60,6 +63,13 @@ type KakaoKeywordSearchResponse = {
     x: string;
     y: string;
   }>;
+};
+
+type KakaoKeywordSearchErrorResponse = {
+  code?: number | string;
+  errorType?: string;
+  message?: string;
+  msg?: string;
 };
 
 export class StaticCatalogPlaceSearchClient implements PlaceSearchClient {
@@ -104,8 +114,12 @@ export class KakaoPlaceSearchClient implements PlaceSearchClient {
     if (!this.restApiKey) {
       throw new AppError(
         503,
-        'SEARCH_PROVIDER_UNAVAILABLE',
-        'KAKAO_REST_API_KEY is required for Kakao place search',
+        'SEARCH_PROVIDER_MISCONFIGURED',
+        'Kakao place search is not configured correctly',
+        {
+          provider: 'kakao',
+          reason: 'missing REST API key',
+        },
       );
     }
 
@@ -137,14 +151,7 @@ export class KakaoPlaceSearchClient implements PlaceSearchClient {
     }
 
     if (!response.ok) {
-      throw new AppError(
-        502,
-        'SEARCH_PROVIDER_ERROR',
-        'Kakao place search request failed',
-        {
-          status: response.status,
-        },
-      );
+      throw await buildKakaoSearchError(response);
     }
 
     const payload = (await response.json()) as KakaoKeywordSearchResponse;
@@ -154,9 +161,82 @@ export class KakaoPlaceSearchClient implements PlaceSearchClient {
       providerPlaceId: document.id,
       name: document.place_name,
       address: document.road_address_name || document.address_name,
+      roadAddress: document.road_address_name || null,
+      categoryName: document.category_name || null,
+      categoryGroupName: document.category_group_name || null,
+      phone: document.phone || null,
       lat: Number(document.y),
       lng: Number(document.x),
       mapUrl: document.place_url ?? null,
     }));
   }
+}
+
+async function buildKakaoSearchError(response: Response): Promise<AppError> {
+  const details: Record<string, unknown> = {
+    provider: 'kakao',
+    status: response.status,
+  };
+
+  try {
+    const payload =
+      (await response.json()) as KakaoKeywordSearchErrorResponse | null;
+
+    if (payload && typeof payload === 'object') {
+      if (payload.code !== undefined) {
+        details.upstreamCode = payload.code;
+      }
+
+      if (typeof payload.errorType === 'string') {
+        details.upstreamType = payload.errorType;
+      }
+
+      const upstreamMessage =
+        typeof payload.msg === 'string'
+          ? payload.msg
+          : typeof payload.message === 'string'
+            ? payload.message
+            : null;
+
+      if (upstreamMessage) {
+        details.upstreamMessage = upstreamMessage;
+      }
+    }
+  } catch {
+    // Fall back to the HTTP status when the upstream error body is unavailable.
+  }
+
+  if (response.status === 429) {
+    return new AppError(
+      429,
+      'SEARCH_PROVIDER_LIMIT_EXCEEDED',
+      'Kakao place search limit reached',
+      details,
+    );
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    return new AppError(
+      503,
+      'SEARCH_PROVIDER_MISCONFIGURED',
+      'Kakao place search is not configured correctly',
+      details,
+    );
+  }
+
+  if (response.status >= 500) {
+    return new AppError(
+      503,
+      'SEARCH_PROVIDER_UNAVAILABLE',
+      'Kakao place search is temporarily unavailable',
+      details,
+    );
+  }
+
+  return new AppError(
+    502,
+    'SEARCH_PROVIDER_ERROR',
+    'Kakao place search request failed',
+    details,
+  );
 }

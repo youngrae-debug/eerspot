@@ -14,17 +14,39 @@ const discoverLinkSchema = z.object({
   url: z.string().trim().url(),
 });
 
+const createCollectionSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+});
+
 const createPlaceSchema = z.object({
   provider: z.enum(['naver', 'kakao', 'google']),
   providerPlaceId: z.string().trim().min(1),
   name: z.string().trim().min(1),
   address: z.string().trim().min(1),
+  roadAddress: z.string().trim().min(1).nullable().optional(),
+  categoryName: z.string().trim().min(1).nullable().optional(),
+  categoryGroupName: z.string().trim().min(1).nullable().optional(),
+  phone: z.string().trim().min(1).nullable().optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),
+  mapUrl: z.string().trim().url().nullable().optional(),
 });
 
 const placeIdParamsSchema = z.object({
   id: z.string().uuid(),
+});
+
+const collectionMembershipParamsSchema = z.object({
+  id: z.string().uuid(),
+});
+
+const collectionMembershipBodySchema = z.object({
+  placeId: z.string().uuid(),
+});
+
+const collectionMembershipDeleteParamsSchema = z.object({
+  id: z.string().uuid(),
+  placeId: z.string().uuid(),
 });
 
 const updatePlaceSchema = z
@@ -62,6 +84,58 @@ export const placesRoutes: FastifyPluginAsync<PlacesRoutesOptions> = async (
         items,
       },
     };
+  });
+
+  app.get('/collections', async request => {
+    const viewer = await authService.authenticate(request.headers.authorization);
+    const data = await placesService.listCollections(viewer.id);
+
+    return { data };
+  });
+
+  app.post('/collections', async (request, reply) => {
+    const viewer = await authService.authenticate(request.headers.authorization);
+    const body = createCollectionSchema.parse(request.body);
+    const data = await placesService.createCollection({
+      userId: viewer.id,
+      name: body.name,
+    });
+
+    return reply.code(201).send({ data });
+  });
+
+  app.delete('/collections/:id', async (request, reply) => {
+    const viewer = await authService.authenticate(request.headers.authorization);
+    const params = collectionMembershipParamsSchema.parse(request.params);
+
+    await placesService.deleteCollection(viewer.id, params.id);
+
+    return reply.code(204).send();
+  });
+
+  app.post('/collections/:id/places', async request => {
+    const viewer = await authService.authenticate(request.headers.authorization);
+    const params = collectionMembershipParamsSchema.parse(request.params);
+    const body = collectionMembershipBodySchema.parse(request.body);
+    const data = await placesService.addPlaceToCollection({
+      userId: viewer.id,
+      collectionId: params.id,
+      placeId: body.placeId,
+    });
+
+    return { data };
+  });
+
+  app.delete('/collections/:id/places/:placeId', async request => {
+    const viewer = await authService.authenticate(request.headers.authorization);
+    const params = collectionMembershipDeleteParamsSchema.parse(request.params);
+    const data = await placesService.removePlaceFromCollection({
+      userId: viewer.id,
+      collectionId: params.id,
+      placeId: params.placeId,
+    });
+
+    return { data };
   });
 
   app.post('/discover-link', async request => {

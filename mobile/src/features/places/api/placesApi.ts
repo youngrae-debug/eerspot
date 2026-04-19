@@ -1,6 +1,6 @@
 import type { RequestOptions } from '../../../shared/api/http';
 
-import type { SavedPlace, SearchPlace } from '../types';
+import type { PlaceCollection, SavedPlace, SearchPlace } from '../types';
 
 type AuthorizedRequest = <T>(
   path: string,
@@ -38,6 +38,69 @@ export async function listPlaces(
   };
 }> {
   return authorizedRequest('/places');
+}
+
+export async function listPlaceCollections(
+  authorizedRequest: AuthorizedRequest,
+): Promise<{
+  items: PlaceCollection[];
+  pageInfo: {
+    nextCursor: null;
+    hasNext: boolean;
+  };
+}> {
+  return authorizedRequest('/places/collections');
+}
+
+export async function createPlaceCollection(
+  authorizedRequest: AuthorizedRequest,
+  input: {
+    name: string;
+  },
+): Promise<PlaceCollection> {
+  return authorizedRequest('/places/collections', {
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function deletePlaceCollection(
+  authorizedRequest: AuthorizedRequest,
+  collectionId: string,
+): Promise<void> {
+  return authorizedRequest(`/places/collections/${collectionId}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function addPlaceToCollection(
+  authorizedRequest: AuthorizedRequest,
+  input: {
+    collectionId: string;
+    placeId: string;
+  },
+): Promise<PlaceCollection> {
+  return authorizedRequest(`/places/collections/${input.collectionId}/places`, {
+    method: 'POST',
+    body: {
+      placeId: input.placeId,
+    },
+  });
+}
+
+export async function removePlaceFromCollection(
+  authorizedRequest: AuthorizedRequest,
+  input: {
+    collectionId: string;
+    placeId: string;
+  },
+): Promise<PlaceCollection> {
+  return authorizedRequest(
+    `/places/collections/${input.collectionId}/places/${input.placeId}`,
+    {
+      method: 'DELETE',
+    },
+  );
 }
 
 export async function getPlace(

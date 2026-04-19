@@ -2,17 +2,20 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 
 import { getEnv } from './config/env.js';
+import { openAppDatabase } from './lib/sqlite.js';
 import { registerErrorHandler } from './lib/http/error-handler.js';
 import {
   authRoutes,
   AuthService,
   InMemoryAuthRepository,
+  SQLiteAuthRepository,
 } from './modules/auth/index.js';
 import {
   InMemoryPlacesRepository,
   KakaoPlaceSearchClient,
   LinkPlaceDiscoveryService,
   PlacesService,
+  SQLitePlacesRepository,
   StaticCatalogPlaceSearchClient,
   placesRoutes,
 } from './modules/places/index.js';
@@ -21,24 +24,39 @@ import { VisionImageOcrClient } from './modules/places/image-ocr.js';
 import {
   InMemorySchedulesRepository,
   SchedulesService,
+  SQLiteSchedulesRepository,
   schedulesRoutes,
 } from './modules/schedules/index.js';
 import { healthRoutes } from './routes/health.js';
 
 type BuildAppOptions = {
-  env?: ReturnType<typeof getEnv>;
+  databasePath?: string;
+  env?: Partial<ReturnType<typeof getEnv>>;
   placeSearchClient?: {
     search: (query: string) => Promise<import('./modules/places/types.js').PlaceSearchResult[]>;
   };
   pageFetchImpl?: typeof fetch;
   imageOcrClient?: ImageOcrClient;
+  storageMode?: 'memory' | 'sqlite';
 };
 
 export function buildApp(options: BuildAppOptions = {}) {
-  const env = options.env ?? getEnv();
-  const authRepository = new InMemoryAuthRepository();
+  const env = {
+    ...getEnv(),
+    ...options.env,
+  };
+  const storageMode = options.storageMode ?? 'memory';
+  const database =
+    storageMode === 'sqlite'
+      ? openAppDatabase(options.databasePath ?? env.DATABASE_PATH)
+      : null;
+  const authRepository = database
+    ? new SQLiteAuthRepository(database)
+    : new InMemoryAuthRepository();
   const authService = new AuthService(authRepository);
-  const placesRepository = new InMemoryPlacesRepository(env.MAP_PROVIDER);
+  const placesRepository = database
+    ? new SQLitePlacesRepository(database)
+    : new InMemoryPlacesRepository(env.MAP_PROVIDER);
   const placeSearchClient =
     options.placeSearchClient ??
     (env.MAP_PROVIDER === 'kakao'
@@ -55,7 +73,9 @@ export function buildApp(options: BuildAppOptions = {}) {
     options.pageFetchImpl ?? fetch,
     options.imageOcrClient ?? new VisionImageOcrClient(),
   );
-  const schedulesRepository = new InMemorySchedulesRepository();
+  const schedulesRepository = database
+    ? new SQLiteSchedulesRepository(database)
+    : new InMemorySchedulesRepository();
   const schedulesService = new SchedulesService(
     schedulesRepository,
     placesService,
@@ -75,6 +95,12 @@ export function buildApp(options: BuildAppOptions = {}) {
   void app.register(cors, {
     origin: corsOrigin,
   });
+
+  if (database) {
+    app.addHook('onClose', async () => {
+      database.close();
+    });
+  }
 
   registerErrorHandler(app);
 

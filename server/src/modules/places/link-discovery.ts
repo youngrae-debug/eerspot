@@ -23,12 +23,45 @@ type PageSummary = {
   url: string;
 };
 
+export type LinkDiscoveryMatchConfidence = 'high' | 'medium' | 'low';
+
+export type LinkDiscoveryMatchReason =
+  | {
+      type: 'query';
+      query: string;
+    }
+  | {
+      type: 'location';
+      location: string;
+    }
+  | {
+      type: 'titleTokens';
+      tokens: string[];
+    }
+  | {
+      type: 'searchRank';
+      rank: number;
+    };
+
 export type LinkDiscoveryItem = PlaceSearchResult & {
   locationHint: string | null;
   matchedQuery: string;
+  matchConfidence: LinkDiscoveryMatchConfidence;
+  matchReasons: LinkDiscoveryMatchReason[];
+};
+
+export type LinkDiscoveryAnalysisKind = 'single' | 'multi';
+export type LinkDiscoveryAnalysisStatus = 'ready' | 'partial';
+
+export type LinkDiscoveryAnalysis = {
+  detectedNameCount: number;
+  kind: LinkDiscoveryAnalysisKind;
+  matchedItemCount: number;
+  status: LinkDiscoveryAnalysisStatus;
 };
 
 export type LinkDiscoveryResult = {
+  analysis: LinkDiscoveryAnalysis;
   items: LinkDiscoveryItem[];
   page: PageSummary;
   queryHints: string[];
@@ -37,6 +70,11 @@ export type LinkDiscoveryResult = {
 type ExplicitQueryHint = {
   score: number;
   value: string;
+};
+
+type ExplicitVenueConstraint = {
+  address: string;
+  name: string;
 };
 
 const LOCATION_HINTS: LocationHint[] = [
@@ -66,7 +104,42 @@ const CATEGORY_HINTS: CategoryHint[] = [
   { label: '호프', patterns: ['호프', 'bar', 'beer', 'pub'] },
 ];
 
+const KOREAN_METRO_AREAS = [
+  '서울',
+  '부산',
+  '대구',
+  '인천',
+  '광주',
+  '대전',
+  '울산',
+  '세종',
+] as const;
+const KOREAN_PROVINCES = [
+  '경기',
+  '강원',
+  '충북',
+  '충남',
+  '전북',
+  '전남',
+  '경북',
+  '경남',
+  '제주',
+] as const;
+const KOREAN_SPECIAL_PROVINCES = [
+  '강원특별자치도',
+  '전북특별자치도',
+  '제주특별자치도',
+] as const;
+const KOREAN_REGION_PREFIX_PATTERN = [
+  ...KOREAN_SPECIAL_PROVINCES,
+  ...KOREAN_METRO_AREAS,
+  ...KOREAN_PROVINCES,
+].join('|');
 const ADDRESS_PATTERN = /서울\s+[가-힣A-Za-z0-9.-]+\s+(?:구|동|로|길|가)[^<\n]{0,20}/g;
+const KOREAN_ADDRESS_PATTERN = new RegExp(
+  `(?:${KOREAN_REGION_PREFIX_PATTERN})(?:특별시|광역시|특별자치도|도|시)?\\s+[가-힣A-Za-z0-9.-]+(?:시|군|구)\\s+[가-힣A-Za-z0-9.-]+(?:구|읍|면|동|로|길|가)[^<\\n]{0,24}`,
+  'gu',
+);
 const PAGE_TIMEOUT_MS = 5000;
 const MAX_RESULTS = 6;
 const MAX_PAGE_IMAGE_URLS = 8;
@@ -74,6 +147,28 @@ const MAX_GENERIC_OCR_IMAGES = 4;
 const MAX_INSTAGRAM_OCR_IMAGES = 10;
 const MAX_SEARCH_QUERY_HINTS = 12;
 const MAX_VISIBLE_QUERY_HINTS = 80;
+const MULTI_PLACE_KEYWORDS = [
+  '가야 할',
+  '모아왔',
+  '모아봤',
+  '모아봤당',
+  '모아봤어요',
+  '모음',
+  '리스트',
+  '스팟',
+  '총정리',
+  '추천',
+  '코스',
+  '투어',
+];
+const MULTI_PLACE_CATEGORY_KEYWORDS = [
+  '맛집',
+  '카페',
+  '야장',
+  '술집',
+  '명소',
+  '놀거리',
+];
 
 export class LinkPlaceDiscoveryService {
   constructor(
@@ -89,6 +184,7 @@ export class LinkPlaceDiscoveryService {
     const instagramEmbedHtml = await this.fetchInstagramEmbedPage(normalizedUrl);
     const pageSummary = summarizePage(html, normalizedUrl, instagramEmbedHtml);
     const explicitQueryHints = extractExplicitQueryHints(pageSummary);
+    const explicitVenueConstraints = extractExplicitVenueConstraints(pageSummary);
     const textQueryHints = buildQueryHints(pageSummary, [], explicitQueryHints);
     const imageQueryHints = await this.extractImageQueryHints(pageSummary);
     const queryHints = buildQueryHints(
@@ -108,20 +204,43 @@ export class LinkPlaceDiscoveryService {
     const items = await this.searchCandidates(
       pageSummary,
       queryHints.slice(0, MAX_SEARCH_QUERY_HINTS),
+      explicitVenueConstraints,
     );
-    const visibleQueryHints =
-      items.length > 0
-        ? uniqueCompact(items.map(item => item.matchedQuery))
+    const multiPlaceSignals = detectMultiPlaceSignals(pageSummary, explicitQueryHints);
+    const shouldSuppressAmbiguousItems =
+      multiPlaceSignals.isLikelyMultiPlacePost &&
+      getHostname(pageSummary.url).includes('instagram.com') &&
+      multiPlaceSignals.detectedNameCount <= 1 &&
+      items.length <= 1;
+    const visibleItems = shouldSuppressAmbiguousItems ? [] : items;
+    const visibleQueryHints = shouldSuppressAmbiguousItems
+      ? []
+      : visibleItems.length > 0
+        ? uniqueCompact([
+            ...visibleItems.map(item => item.matchedQuery),
+            ...explicitQueryHints,
+            ...imageQueryHints,
+            ...textQueryHints,
+          ])
         : explicitQueryHints.length > 0
           ? explicitQueryHints
-        : imageQueryHints.length > 0
-          ? imageQueryHints
-          : textQueryHints;
+          : imageQueryHints.length > 0
+            ? imageQueryHints
+            : textQueryHints;
+    const presentableQueryHints = visibleQueryHints.filter(isPresentableQueryHint);
+    const analysis = buildLinkDiscoveryAnalysis({
+      detectedNameCount: multiPlaceSignals.detectedNameCount,
+      isLikelyMultiPlacePost: multiPlaceSignals.isLikelyMultiPlacePost,
+      matchedItemCount: visibleItems.length,
+      shouldSuppressAmbiguousItems,
+    });
 
     return {
-      items,
+      analysis,
+      items: visibleItems,
       page: pageSummary,
-      queryHints: visibleQueryHints,
+      queryHints:
+        presentableQueryHints.length > 0 ? presentableQueryHints : visibleQueryHints,
     };
   }
 
@@ -220,6 +339,7 @@ export class LinkPlaceDiscoveryService {
   private async searchCandidates(
     pageSummary: PageSummary,
     queryHints: string[],
+    explicitVenueConstraints: ExplicitVenueConstraint[],
   ): Promise<LinkDiscoveryItem[]> {
     const titleTokens = tokenize(pageSummary.title);
     const locationHints = pageSummary.locationHints.map(value => value.toLowerCase());
@@ -232,16 +352,30 @@ export class LinkPlaceDiscoveryService {
 
     for (const [queryIndex, query] of queryHints.entries()) {
       const results = await this.searchWithFallback(query);
+      const queryConstraints = explicitVenueConstraints.filter(constraint => {
+        return doesQueryMatchVenueConstraint(query, constraint);
+      });
 
       results.slice(0, 4).forEach((result, resultIndex) => {
+        if (
+          queryConstraints.length > 0 &&
+          !queryConstraints.some(constraint => {
+            return doesResultMatchVenueConstraint(result, constraint);
+          })
+        ) {
+          return;
+        }
+
         const key = `${result.provider}:${result.providerPlaceId}`;
         const haystack = `${result.name} ${result.address}`.toLowerCase();
         const matchedLocationHint =
           pageSummary.locationHints.find(locationHint => {
             return haystack.includes(locationHint.toLowerCase());
           }) ?? null;
-        const titleTokenHits = titleTokens.filter(token => haystack.includes(token))
-          .length;
+        const matchedTitleTokens = titleTokens.filter(token => {
+          return haystack.includes(token);
+        });
+        const titleTokenHits = matchedTitleTokens.length;
         const score =
           100 -
           queryIndex * 12 -
@@ -249,6 +383,18 @@ export class LinkPlaceDiscoveryService {
           titleTokenHits * 8 +
           (matchedLocationHint ? 10 : 0) +
           locationHints.filter(locationHint => haystack.includes(locationHint)).length;
+        const matchConfidence = buildMatchConfidence({
+          score,
+          hasLocationHint: Boolean(matchedLocationHint),
+          resultIndex,
+          titleTokenHits,
+        });
+        const matchReasons = buildMatchReasons({
+          matchedLocationHint,
+          matchedTitleTokens,
+          query,
+          resultIndex,
+        });
 
         const currentCandidate = candidates.get(key);
 
@@ -257,6 +403,8 @@ export class LinkPlaceDiscoveryService {
             ...result,
             locationHint: matchedLocationHint,
             matchedQuery: query,
+            matchConfidence,
+            matchReasons,
             score,
           });
         }
@@ -284,11 +432,109 @@ export class LinkPlaceDiscoveryService {
   }
 }
 
+function buildMatchConfidence({
+  score,
+  hasLocationHint,
+  resultIndex,
+  titleTokenHits,
+}: {
+  score: number;
+  hasLocationHint: boolean;
+  resultIndex: number;
+  titleTokenHits: number;
+}): LinkDiscoveryMatchConfidence {
+  if (
+    score >= 110 ||
+    (resultIndex === 0 && hasLocationHint && titleTokenHits > 0)
+  ) {
+    return 'high';
+  }
+
+  if (score >= 95 || hasLocationHint || titleTokenHits > 0 || resultIndex === 0) {
+    return 'medium';
+  }
+
+  return 'low';
+}
+
+function buildMatchReasons({
+  matchedLocationHint,
+  matchedTitleTokens,
+  query,
+  resultIndex,
+}: {
+  matchedLocationHint: string | null;
+  matchedTitleTokens: string[];
+  query: string;
+  resultIndex: number;
+}): LinkDiscoveryMatchReason[] {
+  const reasons: LinkDiscoveryMatchReason[] = [
+    {
+      type: 'query',
+      query,
+    },
+  ];
+
+  if (matchedLocationHint) {
+    reasons.push({
+      type: 'location',
+      location: matchedLocationHint,
+    });
+  }
+
+  if (matchedTitleTokens.length > 0) {
+    reasons.push({
+      type: 'titleTokens',
+      tokens: matchedTitleTokens.slice(0, 3),
+    });
+  }
+
+  if (resultIndex < 3) {
+    reasons.push({
+      type: 'searchRank',
+      rank: resultIndex + 1,
+    });
+  }
+
+  return reasons;
+}
+
+function buildLinkDiscoveryAnalysis(input: {
+  detectedNameCount: number;
+  isLikelyMultiPlacePost: boolean;
+  matchedItemCount: number;
+  shouldSuppressAmbiguousItems: boolean;
+}): LinkDiscoveryAnalysis {
+  if (!input.isLikelyMultiPlacePost) {
+    return {
+      detectedNameCount: input.detectedNameCount,
+      kind: 'single',
+      matchedItemCount: input.matchedItemCount,
+      status: 'ready',
+    };
+  }
+
+  const isPartial =
+    input.shouldSuppressAmbiguousItems ||
+    input.matchedItemCount === 0 ||
+    (input.detectedNameCount >= 2 &&
+      input.matchedItemCount < input.detectedNameCount) ||
+    (input.detectedNameCount < 2 && input.matchedItemCount < 2);
+
+  return {
+    detectedNameCount: input.detectedNameCount,
+    kind: 'multi',
+    matchedItemCount: input.matchedItemCount,
+    status: isPartial ? 'partial' : 'ready',
+  };
+}
+
 function summarizePage(
   html: string,
   url: string,
   instagramEmbedHtml: string | null = null,
 ): PageSummary {
+  const instagramEmbedBodyText = buildInstagramEmbedBodyText(instagramEmbedHtml);
   const rawTitle =
     firstNonEmpty([
       extractMetaContent(html, 'og:title'),
@@ -308,9 +554,12 @@ function summarizePage(
     : MAX_PAGE_IMAGE_URLS;
   const imageUrls = uniqueCompact([
     ...extractInstagramSidecarImageUrls(instagramEmbedHtml),
+    ...extractInstagramEmbedImageUrls(instagramEmbedHtml, url),
     ...extractPageImageUrls(html, url),
   ]).slice(0, maxImageUrls);
-  const bodyText = normalizeWhitespace(stripHtml(html));
+  const bodyText = shouldFetchInstagramEmbed(url)
+    ? instagramEmbedBodyText
+    : normalizeWhitespace(stripHtml(html));
   const contentPreview = buildContentPreview({
     bodyText,
     description,
@@ -336,7 +585,6 @@ function buildQueryHints(
   imageQueryHints: string[],
   explicitQueryHints: string[],
 ): string[] {
-  const titleBase = compactTitleQuery(cleanTitle(pageSummary.title));
   const locationScopedExplicitQueries = explicitQueryHints.flatMap(explicitHint => {
     return [
       explicitHint,
@@ -345,6 +593,15 @@ function buildQueryHints(
       }),
     ];
   });
+
+  if (explicitQueryHints.length > 0) {
+    return uniqueCompact(locationScopedExplicitQueries).slice(
+      0,
+      MAX_VISIBLE_QUERY_HINTS,
+    );
+  }
+
+  const titleBase = compactTitleQuery(cleanTitle(pageSummary.title));
   const categoryHints = inferCategoryHints(
     [titleBase, pageSummary.description, pageSummary.contentPreview]
       .filter(Boolean)
@@ -359,7 +616,6 @@ function buildQueryHints(
     ];
   });
   const nextQueries = uniqueCompact([
-    ...locationScopedExplicitQueries,
     ...imageQueries,
     titleBase,
     ...pageSummary.locationHints.flatMap(locationHint => {
@@ -376,12 +632,21 @@ function buildQueryHints(
 
 function extractExplicitQueryHints(pageSummary: PageSummary): string[] {
   const markerHints = uniqueExplicitHints([
+    ...extractInstagramStructuredListHints(pageSummary.title, 126),
+    ...extractInstagramStructuredListHints(pageSummary.description, 108),
+    ...extractInstagramStructuredListHints(pageSummary.contentPreview, 90),
     ...extractInstagramMarkerHints(pageSummary.title, 120),
     ...extractInstagramMarkerHints(pageSummary.description, 90),
     ...extractInstagramMarkerHints(pageSummary.contentPreview, 60),
     ...extractInstagramPlaceMarkerHints(pageSummary.title, 125),
     ...extractInstagramPlaceMarkerHints(pageSummary.description, 100),
     ...extractInstagramPlaceMarkerHints(pageSummary.contentPreview, 80),
+    ...extractAddressBoundPlaceHints(pageSummary.title, 122),
+    ...extractAddressBoundPlaceHints(pageSummary.description, 130),
+    ...extractAddressBoundPlaceHints(pageSummary.contentPreview, 92),
+    ...extractCommaDelimitedPlaceHints(pageSummary.title, 110),
+    ...extractCommaDelimitedPlaceHints(pageSummary.description, 118),
+    ...extractCommaDelimitedPlaceHints(pageSummary.contentPreview, 86),
   ]);
 
   if (markerHints.length > 0) {
@@ -403,11 +668,22 @@ function extractExplicitQueryHints(pageSummary: PageSummary): string[] {
     .slice(0, 8);
 }
 
+function extractExplicitVenueConstraints(
+  pageSummary: PageSummary,
+): ExplicitVenueConstraint[] {
+  return uniqueVenueConstraints([
+    ...extractAddressBoundVenueConstraints(pageSummary.title),
+    ...extractAddressBoundVenueConstraints(pageSummary.description),
+    ...extractAddressBoundVenueConstraints(pageSummary.contentPreview),
+  ]);
+}
+
 function normalizeUrl(value: string): string {
   let normalizedUrl: URL;
+  const decodedCandidate = decodeUrlCandidate(value.trim());
 
   try {
-    normalizedUrl = new URL(value.trim());
+    normalizedUrl = unwrapKnownRedirectUrl(new URL(decodedCandidate));
   } catch {
     throw new AppError(400, 'VALIDATION_ERROR', 'url must be a valid http link');
   }
@@ -418,6 +694,8 @@ function normalizeUrl(value: string): string {
   ) {
     throw new AppError(400, 'VALIDATION_ERROR', 'url must be a valid http link');
   }
+
+  normalizedUrl = canonicalizeKnownMediaUrl(normalizedUrl);
 
   return normalizedUrl.toString();
 }
@@ -546,6 +824,57 @@ function buildContentPreview(input: {
   return input.title ?? '';
 }
 
+function detectMultiPlaceSignals(
+  pageSummary: PageSummary,
+  explicitQueryHints: string[],
+): {
+  detectedNameCount: number;
+  isLikelyMultiPlacePost: boolean;
+} {
+  const isInstagramUrl = getHostname(pageSummary.url).includes('instagram.com');
+  const source = [
+    pageSummary.title,
+    pageSummary.description,
+    pageSummary.contentPreview,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const normalizedSource = source.toLowerCase();
+  const placeMarkerCount = countMatches(source, /[📍📌]/gu);
+  const handleCount = countMatches(source, /(^|[\s(])@{1,2}[가-힣A-Za-z0-9._]{2,30}/gu);
+  const listKeywordCount = MULTI_PLACE_KEYWORDS.filter(keyword => {
+    return normalizedSource.includes(keyword.toLowerCase());
+  }).length;
+  const categoryKeywordCount = MULTI_PLACE_CATEGORY_KEYWORDS.filter(keyword => {
+    return normalizedSource.includes(keyword.toLowerCase());
+  }).length;
+  const detectedNameCount = explicitQueryHints.length;
+  const hasSingleAddressBoundVenue =
+    detectedNameCount === 1 && countMatches(source, KOREAN_ADDRESS_PATTERN) >= 1;
+  if (hasSingleAddressBoundVenue) {
+    return {
+      detectedNameCount,
+      isLikelyMultiPlacePost: false,
+    };
+  }
+  const hasExplicitMultiVenueSignals =
+    detectedNameCount >= 2 ||
+    handleCount >= 2 ||
+    (placeMarkerCount >= 2 && detectedNameCount >= 2);
+  const looksLikeRoundup =
+    isInstagramUrl &&
+    (listKeywordCount >= 2 || (listKeywordCount >= 1 && categoryKeywordCount >= 1));
+
+  return {
+    detectedNameCount,
+    isLikelyMultiPlacePost: hasExplicitMultiVenueSignals || looksLikeRoundup,
+  };
+}
+
+function countMatches(value: string, pattern: RegExp): number {
+  return [...value.matchAll(pattern)].length;
+}
+
 function extractLocationHints(source: string): string[] {
   const normalizedSource = source.toLowerCase();
   const locationHints = LOCATION_HINTS.filter(locationHint => {
@@ -553,11 +882,18 @@ function extractLocationHints(source: string): string[] {
       normalizedSource.includes(pattern.toLowerCase()),
     );
   }).map(locationHint => locationHint.label);
+  const compositeLocationHints = extractCompositeLocationHints(source);
+  const addressLocalityHints = extractAddressLocalityHints(source);
   const addressHints = [...source.matchAll(ADDRESS_PATTERN)].map(match => {
     return normalizeWhitespace(match[0]);
   });
 
-  return uniqueCompact([...locationHints, ...addressHints]).slice(0, 4);
+  return uniqueCompact([
+    ...locationHints,
+    ...compositeLocationHints,
+    ...addressLocalityHints,
+    ...addressHints,
+  ]).slice(0, 4);
 }
 
 function inferCategoryHints(source: string): string[] {
@@ -591,23 +927,48 @@ function cleanPageTitle(title: string | null, url: string): string | null {
   const hostname = getHostname(url);
 
   if (hostname.includes('instagram.com')) {
+    const koreanInstagramCaptionMatch =
+      /Instagram의\s+[^:]+:\s*"?([\s\S]+?)"?$/u.exec(title);
+
+    if (koreanInstagramCaptionMatch?.[1]) {
+      const cleanedInstagramCaption = normalizeWhitespace(
+        stripInstagramHashtagTail(
+          trimTrailingQuotePeriod(
+            stripWrappingQuotes(koreanInstagramCaptionMatch[1]),
+          ),
+        ),
+      );
+
+      return isGenericInstagramTitle(cleanedInstagramCaption)
+        ? null
+        : cleanedInstagramCaption;
+    }
+
     const instagramCaptionMatch = / on Instagram:\s*"?([\s\S]+?)"?$/i.exec(title);
 
     if (instagramCaptionMatch?.[1]) {
-      return normalizeWhitespace(
+      const cleanedInstagramCaption = normalizeWhitespace(
         stripInstagramHashtagTail(
           trimTrailingQuotePeriod(stripWrappingQuotes(instagramCaptionMatch[1])),
         ),
       );
+
+      return isGenericInstagramTitle(cleanedInstagramCaption)
+        ? null
+        : cleanedInstagramCaption;
     }
 
-    return normalizeWhitespace(
+    const cleanedInstagramTitle = normalizeWhitespace(
       stripInstagramHashtagTail(
         trimTrailingQuotePeriod(
           title.replace(/\s*\([^)]*\)\s*•\s*Instagram photos and videos$/i, ''),
         ),
       ),
     );
+
+    return isGenericInstagramTitle(cleanedInstagramTitle)
+      ? null
+      : cleanedInstagramTitle;
   }
 
   return normalizeWhitespace(trimTrailingQuotePeriod(stripWrappingQuotes(title)));
@@ -632,11 +993,15 @@ function cleanPageDescription(
       .replace(/["']?\.\s*$/, '')
       .trim();
 
-    return normalizeWhitespace(
+    const normalizedDescription = normalizeWhitespace(
       stripInstagramHashtagTail(
         trimTrailingQuotePeriod(stripWrappingQuotes(cleanedInstagramDescription)),
       ),
     );
+
+    return isGenericInstagramDescription(normalizedDescription)
+      ? null
+      : normalizedDescription;
   }
 
   return normalizeWhitespace(
@@ -648,7 +1013,14 @@ function cleanBodyText(bodyText: string, url: string): string {
   const hostname = getHostname(url);
 
   if (hostname.includes('instagram.com')) {
-    return '';
+    return normalizeWhitespace(bodyText)
+      .replace(/\bView more on Instagram\b/gi, ' ')
+      .replace(/\bView all \d[\d,]* comments?\b/gi, ' ')
+      .replace(/\bAdd a comment\.\.\.\b/gi, ' ')
+      .replace(/\bView profile\b/gi, ' ')
+      .replace(/\b\d[\d,]* likes?\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   return bodyText;
@@ -663,7 +1035,7 @@ function extractInstagramMarkerHints(
   }
 
   const normalizedValue = normalizeWhitespace(value);
-  const hints = [...normalizedValue.matchAll(/📌\s*([^📍🕐⌨❌@#\[\]\n]{2,40})/gu)]
+  const hints = [...normalizedValue.matchAll(/📌\s*([^📍🕐⏰⌨❌@#\[\]\n]{2,40})/gu)]
     .map(match => normalizeExplicitHint(match[1] ?? ''))
     .filter(Boolean)
     .filter(isLikelyExplicitPlaceHint)
@@ -677,6 +1049,30 @@ function extractInstagramMarkerHints(
   return hints;
 }
 
+function extractInstagramStructuredListHints(
+  value: string | null,
+  score: number,
+): ExplicitQueryHint[] {
+  if (!value) {
+    return [];
+  }
+
+  const normalizedValue = normalizeWhitespace(value);
+
+  return uniqueExplicitHints(
+    [...normalizedValue.matchAll(/[▶▸▹]\s*([^▶▸▹▷📍🕐⏰⌨❌@#☆★]{2,40}?)(?=\s*(?:\(|▷|🕐|⏰|@|#|$))/gu)]
+      .map(match => normalizeStructuredPlaceHint(match[1] ?? ''))
+      .filter(Boolean)
+      .filter(isLikelyExplicitPlaceHint)
+      .map(hint => {
+        return {
+          score,
+          value: hint,
+        };
+      }),
+  );
+}
+
 function extractInstagramPlaceMarkerHints(
   value: string | null,
   score: number,
@@ -687,8 +1083,8 @@ function extractInstagramPlaceMarkerHints(
 
   const normalizedValue = normalizeWhitespace(value);
 
-  return [...normalizedValue.matchAll(/📍\s*([^📍📌🕐⌨❌@#\[\]:]{2,40})/gu)]
-    .map(match => normalizeExplicitHint(match[1] ?? ''))
+  return [...normalizedValue.matchAll(/📍\s*([^📍📌🕐⏰⌨❌@#\[\]:]{2,40})/gu)]
+    .map(match => normalizeInstagramPlaceMarkerHint(match[1] ?? ''))
     .filter(Boolean)
     .filter(isLikelyExplicitPlaceHint)
     .map(hint => {
@@ -697,6 +1093,95 @@ function extractInstagramPlaceMarkerHints(
         value: hint,
       };
     });
+}
+
+function extractAddressBoundPlaceHints(
+  value: string | null,
+  score: number,
+): ExplicitQueryHint[] {
+  if (!value) {
+    return [];
+  }
+
+  const normalizedValue = normalizeWhitespace(value);
+
+  return uniqueExplicitHints(
+    [...normalizedValue.matchAll(KOREAN_ADDRESS_PATTERN)]
+      .map(match => {
+        const addressIndex = match.index ?? 0;
+        const prefix = normalizedValue.slice(Math.max(0, addressIndex - 40), addressIndex);
+
+        if (/[📍📌▶▸▹]/u.test(prefix)) {
+          return null;
+        }
+
+        return normalizeAddressBoundPlaceHint(prefix);
+      })
+      .filter((hint): hint is string => Boolean(hint))
+      .filter(isLikelyExplicitPlaceHint)
+      .map(hint => {
+        return {
+          score,
+          value: hint,
+        };
+      }),
+  );
+}
+
+function extractAddressBoundVenueConstraints(
+  value: string | null,
+): ExplicitVenueConstraint[] {
+  if (!value) {
+    return [];
+  }
+
+  const normalizedValue = normalizeWhitespace(value);
+
+  return [...normalizedValue.matchAll(KOREAN_ADDRESS_PATTERN)]
+    .map(match => {
+      const address = normalizeWhitespace(match[0] ?? '');
+      const addressIndex = match.index ?? 0;
+      const prefix = normalizedValue.slice(Math.max(0, addressIndex - 56), addressIndex);
+      const name = extractVenueNameNearAddress(prefix);
+
+      if (!name || !isLikelyExplicitPlaceHint(name)) {
+        return null;
+      }
+
+      return {
+        address,
+        name,
+      } satisfies ExplicitVenueConstraint;
+    })
+    .filter((constraint): constraint is ExplicitVenueConstraint => Boolean(constraint));
+}
+
+function extractCommaDelimitedPlaceHints(
+  value: string | null,
+  score: number,
+): ExplicitQueryHint[] {
+  if (!value) {
+    return [];
+  }
+
+  const normalizedValue = normalizeWhitespace(value);
+  const candidates = [...normalizedValue.matchAll(/(?:^|[\s(])([가-힣A-Za-z0-9&]{2,24})(?=,\s)/gu)]
+    .map(match => normalizeCommaDelimitedPlaceHint(match[1] ?? ''))
+    .filter(Boolean)
+    .filter(isLikelyCommaDelimitedPlaceHint);
+
+  if (candidates.length < 2) {
+    return [];
+  }
+
+  return uniqueExplicitHints(
+    candidates.map(candidate => {
+      return {
+        score,
+        value: candidate,
+      };
+    }),
+  );
 }
 
 function extractInstagramNarrativeHints(
@@ -749,6 +1234,75 @@ function normalizeExplicitHint(value: string): string {
     .trim();
 }
 
+function normalizeStructuredPlaceHint(value: string): string {
+  return normalizeExplicitHint(
+    value
+      .replace(/\([^)]*\)$/u, '')
+      .replace(/\s+(?:주말|평일)\s*$/u, '')
+      .trim(),
+  );
+}
+
+function normalizeInstagramPlaceMarkerHint(value: string): string {
+  const normalizedValue = normalizeExplicitHint(value);
+  const addressStartMatch =
+    /\s+(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)\s+[가-힣A-Za-z0-9.-]+?(?:구|군|시|읍|면|동|로|길|가)(?=\s|$)/u.exec(
+      normalizedValue,
+    );
+
+  if (!addressStartMatch || addressStartMatch.index === undefined) {
+    return normalizedValue;
+  }
+
+  return normalizeExplicitHint(
+    normalizedValue.slice(0, addressStartMatch.index),
+  );
+}
+
+function normalizeAddressBoundPlaceHint(value: string): string {
+  const sentenceTail = value.split(/[.!?~…]/u).at(-1) ?? value;
+  const normalizedTail = normalizeWhitespace(sentenceTail)
+    .replace(/^[^가-힣A-Za-z0-9&]+/u, '')
+    .trim();
+  const nextValue =
+    normalizedTail.split(/\s+/).length > 4
+      ? normalizedTail.split(/\s+/).slice(-4).join(' ')
+      : normalizedTail;
+
+  return normalizeExplicitHint(nextValue);
+}
+
+function extractVenueNameNearAddress(value: string): string | null {
+  const markerCandidates = uniqueCompact([
+    ...[...value.matchAll(/[📌📍]\s*([^📌📍▶▸▹@#\n]{2,40})/gu)].map(match => {
+      return normalizeInstagramPlaceMarkerHint(match[1] ?? '');
+    }),
+    ...[...value.matchAll(/[▶▸▹]\s*([^▶▸▹📍📌@#\n]{2,40})/gu)].map(match => {
+      return normalizeStructuredPlaceHint(match[1] ?? '');
+    }),
+  ]);
+
+  if (markerCandidates.length > 0) {
+    return markerCandidates.at(-1) ?? null;
+  }
+
+  const handleCandidates = [...value.matchAll(/@{1,2}([가-힣A-Za-z0-9._]{2,30})/gu)]
+    .map(match => normalizeExplicitHint(match[1] ?? ''))
+    .filter(Boolean);
+
+  if (handleCandidates.length > 0) {
+    return handleCandidates.at(-1) ?? null;
+  }
+
+  const normalizedFallback = normalizeAddressBoundPlaceHint(value);
+
+  return normalizedFallback || null;
+}
+
+function normalizeCommaDelimitedPlaceHint(value: string): string {
+  return normalizeExplicitHint(value);
+}
+
 function normalizeNarrativeHint(value: string): string {
   return normalizeWhitespace(value)
     .replace(/^[\s:.,!?\-[\]()]+|[\s:.,!?\-[\]()]+$/g, '')
@@ -761,11 +1315,39 @@ function isLikelyExplicitPlaceHint(value: string): boolean {
     return false;
   }
 
+  if (value.split(/\s+/).length > 3) {
+    return false;
+  }
+
   if (/[0-9]{2,}/.test(value)) {
     return false;
   }
 
+  if (/[가-힣]{2,}[A-Z]$/u.test(value)) {
+    return false;
+  }
+
   const loweredValue = value.toLowerCase();
+
+  if (
+    [
+      '맛집',
+      '카페',
+      '야장',
+      '명소',
+      '놀거리',
+      '직접',
+      '보고',
+      '이건',
+      '여긴',
+      '도장깨기',
+      '고기',
+      '미나리',
+      '노포갬성',
+    ].includes(loweredValue)
+  ) {
+    return false;
+  }
 
   return ![
     '인스타그램',
@@ -773,6 +1355,30 @@ function isLikelyExplicitPlaceHint(value: string): boolean {
     '판매처',
     '버터떡',
     '유료광고포함',
+    '필수코스',
+    '공개합니다',
+    '가면',
+    '여긴 필수',
+    '시장표',
+  ].some(fragment => loweredValue.includes(fragment));
+}
+
+function isLikelyCommaDelimitedPlaceHint(value: string): boolean {
+  if (!isLikelyExplicitPlaceHint(value)) {
+    return false;
+  }
+
+  const loweredValue = value.toLowerCase();
+
+  return ![
+    '강릉여행',
+    '서울여행',
+    '전주여행',
+    '시장표맛집',
+    '시장맛집',
+    '맛집추천',
+    '필수코스',
+    '공개합니다',
   ].some(fragment => loweredValue.includes(fragment));
 }
 
@@ -817,6 +1423,40 @@ function isLikelyNarrativePlaceHint(value: string): boolean {
   ].some(fragment => loweredValue.includes(fragment));
 }
 
+function isPresentableQueryHint(value: string): boolean {
+  const normalizedValue = normalizeWhitespace(value);
+
+  if (!normalizedValue) {
+    return false;
+  }
+
+  if (normalizedValue.split(/\s+/).length > 3) {
+    return false;
+  }
+
+  if (/[가-힣]{2,}[A-Z]$/u.test(normalizedValue)) {
+    return false;
+  }
+
+  const loweredValue = normalizedValue.toLowerCase();
+
+  if (
+    ['고기', '미나리', '노포갬성', '0감정', '삼은l', '강을', '직접'].includes(
+      loweredValue,
+    )
+  ) {
+    return false;
+  }
+
+  return ![
+    '나만 알고 싶은',
+    '이걸 참는다고',
+    '여긴 필수',
+    '가면',
+    '돌판 맛집',
+  ].some(fragment => loweredValue.includes(fragment));
+}
+
 function tokenize(value: string | null): string[] {
   if (!value) {
     return [];
@@ -828,6 +1468,42 @@ function tokenize(value: string | null): string[] {
       .split(/[^a-z0-9가-힣]+/)
       .filter(token => token.length >= 2),
   );
+}
+
+function extractCompositeLocationHints(source: string): string[] {
+  return uniqueCompact(
+    [...source.matchAll(/([가-힣A-Za-z]{2,12})(?:맛집|카페|여행|가볼만한곳|야장)\b/gu)]
+      .map(match => normalizeWhitespace(match[1] ?? ''))
+      .filter(value => value.length >= 2),
+  );
+}
+
+function extractAddressLocalityHints(source: string): string[] {
+  const metroPattern = new RegExp(
+    `((?:${KOREAN_METRO_AREAS.join('|')})(?:특별시|광역시|시)?)\\s+[가-힣A-Za-z0-9.-]+(?:구|군|시)`,
+    'gu',
+  );
+  const provincePattern = new RegExp(
+    `((?:${[...KOREAN_PROVINCES, ...KOREAN_SPECIAL_PROVINCES].join('|')})(?:특별자치도|도)?)\\s+([가-힣A-Za-z0-9.-]+(?:시|군))`,
+    'gu',
+  );
+
+  return uniqueCompact([
+    ...[...source.matchAll(metroPattern)].map(match => {
+      return normalizeMetroAreaLabel(match[1] ?? '');
+    }),
+    ...[...source.matchAll(provincePattern)].map(match => {
+      return normalizeProvinceLocalityLabel(match[2] ?? '');
+    }),
+  ]);
+}
+
+function normalizeMetroAreaLabel(value: string): string {
+  return value.replace(/특별시|광역시|시$/u, '').trim();
+}
+
+function normalizeProvinceLocalityLabel(value: string): string {
+  return value.replace(/시|군$/u, '').trim();
 }
 
 function firstNonEmpty(values: Array<string | null>): string | null {
@@ -846,6 +1522,22 @@ function uniqueExplicitHints(values: ExplicitQueryHint[]): ExplicitQueryHint[] {
 
     if (!currentValue || value.score > currentValue.score) {
       map.set(value.value, value);
+    }
+  }
+
+  return [...map.values()];
+}
+
+function uniqueVenueConstraints(
+  values: ExplicitVenueConstraint[],
+): ExplicitVenueConstraint[] {
+  const map = new Map<string, ExplicitVenueConstraint>();
+
+  for (const value of values) {
+    const key = `${normalizeMatchKey(value.name)}::${normalizeAddressComparable(value.address)}`;
+
+    if (!map.has(key)) {
+      map.set(key, value);
     }
   }
 
@@ -872,12 +1564,113 @@ function stripWrappingQuotes(value: string): string {
   return value.replace(/^["']+|["']+$/g, '');
 }
 
+function buildInstagramEmbedBodyText(html: string | null): string {
+  if (!html) {
+    return '';
+  }
+
+  return normalizeWhitespace(
+    [
+      extractInstagramEmbedLocation(html),
+      extractInstagramEmbedCaption(html),
+    ]
+      .filter(Boolean)
+      .join(' '),
+  );
+}
+
 function getHostname(url: string): string {
   try {
     return new URL(url).hostname;
   } catch {
     return '';
   }
+}
+
+function doesQueryMatchVenueConstraint(
+  query: string,
+  constraint: ExplicitVenueConstraint,
+): boolean {
+  const normalizedQuery = normalizeMatchKey(query);
+  const normalizedName = normalizeMatchKey(constraint.name);
+
+  return (
+    normalizedQuery.includes(normalizedName) ||
+    normalizedName.includes(normalizedQuery)
+  );
+}
+
+function doesResultMatchVenueConstraint(
+  result: PlaceSearchResult,
+  constraint: ExplicitVenueConstraint,
+): boolean {
+  if (!doesQueryMatchVenueConstraint(result.name, constraint)) {
+    return false;
+  }
+
+  return doesResultAddressMatchConstraint(result, constraint.address);
+}
+
+function doesResultAddressMatchConstraint(
+  result: PlaceSearchResult,
+  expectedAddress: string,
+): boolean {
+  const comparableExpectedAddress = normalizeAddressComparable(expectedAddress);
+  const candidateAddresses = uniqueCompact([result.address, result.roadAddress]).map(
+    normalizeAddressComparable,
+  );
+
+  if (
+    candidateAddresses.some(candidateAddress => {
+      return (
+        candidateAddress.includes(comparableExpectedAddress) ||
+        comparableExpectedAddress.includes(candidateAddress)
+      );
+    })
+  ) {
+    return true;
+  }
+
+  const expectedTokens = extractAddressMatchTokens(expectedAddress);
+  const candidateTokens = new Set(
+    candidateAddresses.flatMap(candidateAddress => {
+      return extractAddressMatchTokens(candidateAddress);
+    }),
+  );
+  const sharedTokenCount = expectedTokens.filter(token => {
+    return candidateTokens.has(token);
+  }).length;
+  const numericTokens = expectedTokens.filter(token => /\d/.test(token));
+  const requiresNumericTokenMatch = numericTokens.length > 0;
+  const hasNumericTokenMatch = numericTokens.some(token => candidateTokens.has(token));
+
+  return (
+    sharedTokenCount >= Math.min(2, expectedTokens.length) &&
+    (!requiresNumericTokenMatch || hasNumericTokenMatch)
+  );
+}
+
+function normalizeMatchKey(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9가-힣]+/g, '');
+}
+
+function normalizeAddressComparable(value: string): string {
+  return normalizeWhitespace(value)
+    .replace(/(?:지하)?\d+층(?:\s+\d+호)?/gu, ' ')
+    .replace(/\d+호/gu, ' ')
+    .replace(/\s+/g, '');
+}
+
+function extractAddressMatchTokens(value: string): string[] {
+  return uniqueCompact(
+    normalizeWhitespace(value)
+      .split(/\s+/)
+      .map(token => token.trim())
+      .filter(token => token.length >= 2)
+      .filter(token => !/^(?:지하)?\d+층$|^\d+호$/u.test(token))
+      .filter(token => token !== '대한민국')
+      .map(token => token.toLowerCase()),
+  );
 }
 
 function trimTrailingQuotePeriod(value: string): string {
@@ -897,10 +1690,131 @@ function shouldFetchInstagramEmbed(url: string): boolean {
 }
 
 function buildInstagramEmbedUrl(url: string): string {
-  const normalizedUrl = new URL(url);
+  const normalizedUrl = canonicalizeInstagramMediaUrl(new URL(url));
   const pathname = normalizedUrl.pathname.replace(/\/$/, '');
 
   return `${normalizedUrl.origin}${pathname}/embed/captioned/`;
+}
+
+function canonicalizeKnownMediaUrl(url: URL): URL {
+  if (!getHostname(url.toString()).includes('instagram.com')) {
+    return url;
+  }
+
+  return canonicalizeInstagramMediaUrl(url);
+}
+
+function canonicalizeInstagramMediaUrl(url: URL): URL {
+  const mediaPath = extractInstagramMediaPath(url);
+
+  if (!mediaPath) {
+    return url;
+  }
+
+  const canonicalUrl = new URL(url.toString());
+  canonicalUrl.pathname = `/${mediaPath.kind}/${mediaPath.code}/`;
+
+  return canonicalUrl;
+}
+
+function extractInstagramMediaPath(
+  url: URL,
+): { code: string; kind: 'p' | 'reel' | 'tv' } | null {
+  const pathnameParts = url.pathname
+    .split('/')
+    .map(part => part.trim())
+    .filter(Boolean);
+
+  for (let index = 0; index < pathnameParts.length - 1; index += 1) {
+    const kind = pathnameParts[index]?.toLowerCase();
+
+    if (kind !== 'p' && kind !== 'reel' && kind !== 'tv') {
+      continue;
+    }
+
+    const code = pathnameParts[index + 1]?.trim();
+
+    if (!code) {
+      return null;
+    }
+
+    return {
+      code,
+      kind,
+    };
+  }
+
+  return null;
+}
+
+function extractInstagramEmbedCaption(html: string | null): string | null {
+  if (!html) {
+    return null;
+  }
+
+  const startIndex = html.indexOf('<div class="Caption">');
+
+  if (startIndex < 0) {
+    return null;
+  }
+
+  const footerIndex = html.indexOf('<div class="Footer">', startIndex);
+  const captionSlice =
+    footerIndex > startIndex
+      ? html.slice(startIndex, footerIndex)
+      : html.slice(startIndex, startIndex + 12_000);
+  const normalizedCaption = normalizeWhitespace(stripHtml(captionSlice))
+    .replace(/^[A-Za-z0-9._]+\s+/u, '')
+    .replace(/\bView all \d[\d,]* comments?\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return normalizedCaption || null;
+}
+
+function extractInstagramEmbedLocation(html: string | null): string | null {
+  if (!html) {
+    return null;
+  }
+
+  const locationMatch = /class="Location"[^>]*>([^<]{2,80})</i.exec(html);
+
+  return locationMatch
+    ? decodeHtmlEntities(normalizeWhitespace(locationMatch[1] ?? ''))
+    : null;
+}
+
+function extractInstagramEmbedImageUrls(
+  html: string | null,
+  pageUrl: string,
+): string[] {
+  if (!html) {
+    return [];
+  }
+
+  const imageTags = [...html.matchAll(/<img[^>]*EmbeddedMediaImage[^>]*>/gi)].map(
+    match => match[0],
+  );
+
+  return uniqueCompact(
+    imageTags
+      .map(tag => {
+        const directSrcMatch =
+          /(?:src|data-src)=["']([^"']+)["']/i.exec(tag)?.[1] ?? null;
+
+        if (directSrcMatch) {
+          return directSrcMatch;
+        }
+
+        const srcsetMatch =
+          /(?:srcset|data-srcset)=["']([^"']+)["']/i.exec(tag)?.[1] ?? null;
+
+        return srcsetMatch ? extractFirstSrcsetUrl(srcsetMatch) : null;
+      })
+      .map(imageUrl => resolveImageUrl(imageUrl ?? '', pageUrl))
+      .filter(isNonEmptyString)
+      .filter(isLikelyContentImageUrl),
+  );
 }
 
 function extractInstagramSidecarImageUrls(html: string | null): string[] {
@@ -939,6 +1853,64 @@ function selectImageUrlsForOcr(pageSummary: PageSummary): string[] {
   }
 
   return pageSummary.imageUrls.slice(0, MAX_GENERIC_OCR_IMAGES);
+}
+
+function isGenericInstagramTitle(value: string): boolean {
+  return value.trim().toLowerCase() === 'instagram';
+}
+
+function isGenericInstagramDescription(value: string): boolean {
+  return value
+    .trim()
+    .toLowerCase()
+    .startsWith('create an account or log in to instagram');
+}
+
+function decodeUrlCandidate(value: string): string {
+  let nextValue = value;
+
+  for (let index = 0; index < 2; index += 1) {
+    try {
+      const decodedValue = decodeURIComponent(nextValue);
+
+      if (decodedValue === nextValue) {
+        break;
+      }
+
+      nextValue = decodedValue;
+    } catch {
+      break;
+    }
+  }
+
+  return nextValue;
+}
+
+function unwrapKnownRedirectUrl(url: URL): URL {
+  const hostname = url.hostname.toLowerCase();
+
+  if (
+    hostname !== 'l.instagram.com' &&
+    hostname !== 'l.facebook.com' &&
+    hostname !== 'lm.facebook.com'
+  ) {
+    return url;
+  }
+
+  const nestedUrl = firstNonEmpty([
+    url.searchParams.get('u'),
+    url.searchParams.get('url'),
+  ]);
+
+  if (!nestedUrl) {
+    return url;
+  }
+
+  try {
+    return new URL(decodeUrlCandidate(nestedUrl));
+  } catch {
+    return url;
+  }
 }
 
 function extractFirstSrcsetUrl(value: string): string {
